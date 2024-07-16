@@ -3,5 +3,7 @@ Google Business Listing" automates data extraction from Google Maps using Seleni
 
 
 1 . pip install -m requirments.txt
-2. Change the database credentials and create the database named gbl 
-2. Simply rin the code by running command python file_name
+
+2. Change the database credentials and create the database named gbl
+   
+3. Simply rin the code by running command python file_name
