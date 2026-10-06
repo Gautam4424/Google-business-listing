@@ -25,6 +25,11 @@ class Keyword(IdMixin, TimestampMixin, Base):
     device: Mapped[str] = mapped_column(String(10), default="mobile")
     search_radius_meters: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(32), default="generated")  # generated | user
+    pattern: Mapped[str | None] = mapped_column(String(20))  # in_city | city | near_me | user
+    active: Mapped[bool] = mapped_column(Boolean, default=True)  # only active keywords are rank-checked
+    project_service_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("project_services.id", ondelete="SET NULL")
+    )
 
 
 class RankingRun(IdMixin, Base):

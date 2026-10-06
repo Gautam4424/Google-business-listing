@@ -133,6 +133,7 @@ The settings in `.env`:
 | `APP_BIND` | no | `127.0.0.1` (default): only reachable from the server itself. See [step 7](#7-open-the-web-app). |
 | `APP_PORT` | no | Port on the server, default `8000` |
 | `NOMINATIM_USER_AGENT` | no | Put your email here, e.g. `local-seo-audit/0.1 (you@example.com)`, to use free OpenStreetMap geocoding |
+| `KEYWORD_CAP` | no | Max active keywords per project (default `10`). Each costs 2 SerpApi searches per ranking check. |
 | `SERPAPI_REVIEWS_ENABLED` | no | `false` (default) uses Google's 5 free reviews; `true` uses 2 SerpApi credits per audit for the top 10 |
 | `QUOTA_*` | no | Free-tier safety limits. The app refuses calls above these. |
 
@@ -232,6 +233,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json
 1. Go to **Projects**, then **+ New project**.
 2. Paste one line into **Quick fill**, for example `Astaneh Construction 3080 Yonge St Ste 6060, Toronto, ON M4N 1S1, Canada`, and press **Enter**.
 3. Click **Create project**. The audit runs by itself (about 30 s).
+4. Scroll to **Services & keywords**: tick the core services, add the areas you serve, and adjust which keywords are on (the line above the table shows how many SerpApi credits a ranking check will use).
 
 API reference: **http://localhost:8000/docs** (through your tunnel or proxy).
 

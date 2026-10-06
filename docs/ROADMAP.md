@@ -23,12 +23,12 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 3 | GBP discovery & matching | §1 | **Done** | 100% | — |
 | 4 | GBP profile audit | §1 | **Done** (`gbp_audit` job + pin distance) | 100% | — |
 | 5 | Reviews & NLP | Step 5 | **Done** (GBP API for managed listings optional) | 100% | — |
-| 6 | Service list & keyword generator | Step 4, §2 | Not started | 0% | 2 d |
+| 6 | Service list & keyword generator | Step 4, §2 | **Done** (competitor patterns come with Phase 8) | 100% | — |
 | 7 | Rank tracking & visibility | §2 | Not started | 0% | 4 d |
 | 8 | Competitors & gap analysis | §3 | Not started | 0% | 3 d |
 | 9 | Full pipeline, reports & UI | §4, §7 | Partial (new UI shell done) | 20% | 3 d |
 | 10 | Hardening & compliance | §6 | Not started | 0% | 3 d |
-| **v1 total (0–10)** | | | | **≈ 60%** | **≈ 16 d left (~3 weeks)** |
+| **v1 total (0–10)** | | | | **≈ 70%** | **≈ 14 d left (~3 weeks)** |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
 
 ---
@@ -161,15 +161,19 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 **Goal:** a unified service list and keyword sets per location.
 
-- [ ] Merge services from GBP categories (Phase 4) + website (Phase 2) + review topics (Phase 5) + user input; de-duplicate, keep every source
-- [ ] Project service areas (city, lat/lng, country, language)
-- [ ] Generator: `{service} in {city}`, `{service} {city}`, `{service} near me`
-- [ ] User-entered keywords; de-duplication
-- [ ] Store `keyword, service, location_name, latitude, longitude, language, country, device`
-- [ ] `POST /v1/projects/{id}/keywords/generate`
-- [ ] Keyword cap per project to protect the SerpApi quota (each keyword = 2 searches)
+- [x] Unified service list (`project_services`, `app/services/service_catalog.py`): merges Google categories + website (schema, service pages, sitemap, headings) + review topics + user additions; strips place names (service areas, address localities, and trailing words repeated across offerings, e.g. "… Sydney"); merges singular/plural and near-duplicates; classifies service / customer type / generic Google type (Google categories are always services); scores best confidence + source agreement + review mentions − long-name penalty; pre-ticks 5 core services (primary category first); user choices survive rebuilds
+- [x] Service areas with coordinates: existing pin / Places Text Search (cached 30 days) / business pin fallback; `PUT /v1/projects/{id}/service-areas`
+- [x] Generator: `{service} in {city}`, `{service} near me`, `{service} {city}` per core service × area, plus user keywords; case-insensitive de-duplication
+- [x] Stored per keyword: keyword, service, location_name, latitude, longitude, language, country, device (mobile), source, pattern, active
+- [x] `POST /v1/projects/{id}/keywords/generate` (brief), `GET/POST /keywords`, `PATCH/DELETE /keywords/{id}`, `GET /services`, `POST /services/refresh`, `POST /services`, `PATCH /services/{id}`
+- [x] Keyword cap (`KEYWORD_CAP`, default 10 active) + credit preview (credits per ranking run, SerpApi left, runs possible); activation order: user keywords, then "in {city}" for every core service, then "near me", then "{service} {city}"; regeneration keeps the user's on/off switches; keywords with ranking history are deactivated, not deleted
+- [x] `build_services` + `generate_keywords` steps in `gbp_audit`
+- [x] UI "Services & keywords" section: tick core services (source badges, review mentions), customer types / generic types collapsed, add service, areas (add/remove), keyword table with on/off switches, own keywords, delete, budget line
+- [ ] Competitor category/service patterns as a keyword source (needs Phase 8 data)
 
 **Done when:** a plumber in Manchester project produces keywords like the brief's examples, each stored with full location settings.
+
+✅ **Verified 2026-10-07** on 6 real projects (0 API credits): e.g. Proximity Plumbing core services Plumber, Blocked Drains, Emergency Plumbing, Pipe Relining, Toilet Repairs → 15 keywords, 10 active ("blocked drains in Point Piper", "plumber near me", …), 9 customer types and 3 generic Google types set aside. 101 tests passing.
 
 ---
 

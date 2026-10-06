@@ -49,6 +49,10 @@ curl localhost:8000/v1/usage    # free-tier usage this month
 | POST | `/v1/projects/{id}/reviews/analyze` | Re-run review sentiment, tags, themes, mentioned services (local, no API calls) |
 | GET | `/v1/projects/{id}/reviews` | Reviews with sentiment + tags, and `review_summary` (brief Step 5) |
 | POST | `/v1/jobs` | Start a background job (`queued → running → completed / partial_success / failed`) |
+| GET/POST | `/v1/projects/{id}/services`, `POST …/services/refresh`, `PATCH …/services/{sid}` | Unified service list (tick core services) |
+| PUT | `/v1/projects/{id}/service-areas` | Cities/suburbs served (coordinates looked up) |
+| POST | `/v1/projects/{id}/keywords/generate` | Brief §2 keyword generator (no credits used) |
+| GET/POST | `/v1/projects/{id}/keywords`, `PATCH/DELETE …/keywords/{kid}` | List, add, switch on/off (capped by `KEYWORD_CAP`), delete |
 | GET | `/v1/jobs` | List jobs, newest first (`?project_id=`, `?status=`) |
 | GET | `/v1/jobs/{id}` | Job status with per-step results and errors |
 | GET | `/v1/usage` | Free-tier quota usage per billable API |

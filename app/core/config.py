@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     quota_serpapi_daily: int = 0
     # Top 10 reviews via SerpApi costs 2 credits per audit; off by default (Google's 5 reviews are free).
     serpapi_reviews_enabled: bool = False
+    # Max active keywords per project (each keyword = 2 SerpApi searches per ranking run).
+    keyword_cap: int = 10
 
     google_data_ttl_days: int = 30
     http_timeout_seconds: float = 20.0

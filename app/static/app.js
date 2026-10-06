@@ -360,6 +360,114 @@ function reviewInsights(sum) {
   </div>`;
 }
 
+
+/* ---------- Services & keywords (Phase 6) ---------- */
+
+const FAMILY_LABEL = (src) => src === "gbp_category" ? "Google" : src.startsWith("website") ? "Website"
+  : src === "review_topic" ? "Reviews" : src === "user" ? "You" : src;
+const PATTERN_LABEL = { in_city: "in city", near_me: "near me", city: "city", user: "yours" };
+
+function serviceRow(svc) {
+  const families = [...new Set((svc.sources || []).map((x) => FAMILY_LABEL(x.source)))];
+  return `<label class="svc-row">
+    <input type="checkbox" data-svc="${esc(svc.id)}" ${svc.selected ? "checked" : ""} ${svc.kind !== "service" ? "disabled" : ""}>
+    <span class="svc-name">${esc(svc.name)}</span>
+    <span class="svc-meta">${families.map((f) => `<span class="src-chip">${esc(f)}</span>`).join("")}${svc.review_mentions ? `<span class="src-chip">💬 ${esc(svc.review_mentions)}</span>` : ""}</span>
+  </label>`;
+}
+
+function servicesCard(projectId, data) {
+  const core = data.services.filter((x) => x.selected);
+  const rest = data.services.filter((x) => !x.selected);
+  return `<div class="card"><div class="card-head"><div><h2>Services</h2>
+      <p class="muted">Tick the core services: they become keywords. Merged from Google, the website and reviews.</p></div>
+      <button class="btn ghost sm" data-action="svc-refresh" data-project="${esc(projectId)}">Refresh from audit</button></div>
+    <div class="card-body">
+      ${data.services.length ? `<div class="svc-list">${core.map(serviceRow).join("")}</div>
+        ${rest.length ? `<details class="svc-more"><summary>${rest.length} more services</summary><div class="svc-list">${rest.map(serviceRow).join("")}</div></details>` : ""}`
+        : `<p class="muted">No services yet. Run the audit, or add one below.</p>`}
+      ${data.customer_types.length ? `<details class="svc-more"><summary>${data.customer_types.length} customer types (not used for keywords)</summary>
+        <div class="chips">${data.customer_types.map((x) => `<span class="chip">${esc(x.name)}</span>`).join("")}</div></details>` : ""}
+      ${data.generic.length ? `<details class="svc-more"><summary>${data.generic.length} generic Google types (hidden)</summary>
+        <div class="chips">${data.generic.map((x) => `<span class="chip">${esc(x.name)}</span>`).join("")}</div></details>` : ""}
+      <form class="inline-form" data-form="add-service" data-project="${esc(projectId)}">
+        <input name="name" placeholder="Add a service, e.g. Hot water systems" minlength="2" required>
+        <button class="btn sm">Add</button></form>
+    </div></div>`;
+}
+
+function areasCard(projectId, areas) {
+  return `<div class="card"><div class="card-head"><div><h2>Service areas</h2>
+      <p class="muted">Cities or suburbs the business serves. Each becomes "{service} in {city}".</p></div></div>
+    <div class="card-body">
+      <div class="chips">${areas.map((a, i) => `<span class="chip area-chip" title="${a.latitude != null ? esc(`${a.latitude.toFixed(4)}, ${a.longitude.toFixed(4)}`) : "no coordinates yet"}">📍 ${esc(a.name)}${areas.length > 1 ? ` <button class="icon-btn xs" data-action="area-remove" data-project="${esc(projectId)}" data-index="${i}" aria-label="Remove">✕</button>` : ""}</span>`).join("") || `<span class="muted">None</span>`}</div>
+      <form class="inline-form" data-form="add-area" data-project="${esc(projectId)}">
+        <input name="name" placeholder="Add an area, e.g. Bondi, NSW" minlength="2" required>
+        <button class="btn sm">Add</button></form>
+    </div></div>`;
+}
+
+function keywordsCard(projectId, data) {
+  const pv = data.preview;
+  const budget = pv.active
+    ? `<b>${pv.active}</b> of ${pv.cap} active · one ranking check uses <b>${pv.serpapi_credits_per_ranking_run}</b> SerpApi credits · ${fmtNum(pv.serpapi_remaining_this_month)} left this month (≈ ${pv.ranking_runs_possible ?? 0} checks)`
+    : "No active keywords yet.";
+  const rows = data.keywords.map((k) => `
+    <tr class="${k.active ? "" : "inactive"}">
+      <td><input type="checkbox" data-kw="${esc(k.id)}" data-project="${esc(projectId)}" ${k.active ? "checked" : ""} title="Rank-check this keyword"></td>
+      <td><b>${esc(k.keyword)}</b></td>
+      <td>${esc(k.service || "—")}</td>
+      <td>${esc(k.location_name)}</td>
+      <td><span class="tag">${esc(PATTERN_LABEL[k.pattern] || k.pattern || "")}</span></td>
+      <td><button class="icon-btn xs" data-action="kw-delete" data-project="${esc(projectId)}" data-id="${esc(k.id)}" aria-label="Delete">✕</button></td>
+    </tr>`).join("");
+  return `<div class="card"><div class="card-head"><div><h2>Keywords</h2>
+      <p class="muted">${budget}</p></div>
+      <button class="btn primary sm" data-action="kw-generate" data-project="${esc(projectId)}">${data.keywords.length ? "Regenerate" : "Generate keywords"}</button></div>
+    <div class="card-body">
+      ${data.notes?.length ? `<ul class="notes">${data.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+      ${rows ? `<div class="table-wrap"><table class="kw-table"><thead><tr><th>On</th><th>Keyword</th><th>Service</th><th>Area</th><th>Type</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<p class="muted">Tick core services and areas, then click “Generate keywords”. Generating uses no credits.</p>`}
+      <form class="inline-form" data-form="add-keyword" data-project="${esc(projectId)}">
+        <input name="keyword" placeholder="Add your own keyword, e.g. 24 hour plumber sydney" minlength="3" required>
+        <button class="btn sm">Add</button></form>
+    </div></div>`;
+}
+
+async function renderKeywordSection(project) {
+  const holder = document.getElementById("kw-section");
+  if (!holder) return;
+  try {
+    const [services, keywords] = await Promise.all([
+      api(`/v1/projects/${encodeURIComponent(project.id)}/services`),
+      api(`/v1/projects/${encodeURIComponent(project.id)}/keywords`),
+    ]);
+    holder.innerHTML = `<h2 class="section-title">Services & keywords</h2>
+      <div class="kw-grid"><div class="stack">${servicesCard(project.id, services)}${areasCard(project.id, project.service_areas || [])}</div>
+      ${keywordsCard(project.id, keywords)}</div>`;
+  } catch (err) {
+    holder.innerHTML = `<div class="card card-body muted">Could not load services & keywords: ${esc(err.message)}</div>`;
+  }
+}
+
+async function kwAction(fn, okMessage) {
+  try {
+    const result = await fn();
+    if (okMessage) toast(okMessage);
+    return result;
+  } catch (err) {
+    toast(err.message, "bad");
+  } finally {
+    const [section, id] = location.hash.slice(1).split("/");
+    if (section === "projects" && id) renderProject(id, true);  // refresh in place, keep the scroll position
+    else route();
+  }
+}
+
+async function currentAreas(projectId) {
+  return (await api(`/v1/projects/${encodeURIComponent(projectId)}`)).service_areas || [];
+}
+
 async function startReviewAnalysis(projectId, button) {
   if (button) {
     button.disabled = true;
@@ -687,7 +795,9 @@ async function renderProject(id, silent = false) {
         ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
         <span>${esc(project.name)}</span></p></div>
       <div class="toolbar">${websiteBtn}${auditBtn}</div></div>
-    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}${body}</div>`;
+    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}${body}
+      <section id="kw-section"></section></div>`;
+  renderKeywordSection(project);
 
   if (running) schedule(() => renderProject(id, true), 2000);
 }
@@ -971,6 +1081,26 @@ document.addEventListener("click", (e) => {
   if (action?.dataset.action === "website") return startWebsiteOnly(action.dataset.project, action);
   if (action?.dataset.action === "discover") return startDiscovery(action.dataset.project, action);
   if (action?.dataset.action === "reanalyse") return startReviewAnalysis(action.dataset.project, action);
+  const pid = action?.dataset.project ? encodeURIComponent(action.dataset.project) : null;
+  if (action?.dataset.action === "svc-refresh") {
+    return kwAction(() => api(`/v1/projects/${pid}/services/refresh`, { method: "POST" }), "Services rebuilt from the latest audit");
+  }
+  if (action?.dataset.action === "kw-generate") {
+    action.disabled = true;
+    action.innerHTML = `<span class="spinner"></span>Generating…`;
+    return kwAction(() => api(`/v1/projects/${pid}/keywords/generate`, { method: "POST" }), "Keywords generated (no credits used)");
+  }
+  if (action?.dataset.action === "kw-delete") {
+    return kwAction(() => api(`/v1/projects/${pid}/keywords/${encodeURIComponent(action.dataset.id)}`, { method: "DELETE" }));
+  }
+  if (action?.dataset.action === "area-remove") {
+    e.preventDefault();
+    return kwAction(async () => {
+      const areas = await currentAreas(action.dataset.project);
+      areas.splice(Number(action.dataset.index), 1);
+      return api(`/v1/projects/${pid}/service-areas`, { method: "PUT", body: JSON.stringify(areas) });
+    }, "Area removed — regenerate keywords to update them");
+  }
   if (action?.dataset.action === "select") return selectCandidate(action.dataset.project, action.dataset.place, action);
   const row = e.target.closest("[data-href]");
   if (row && !e.target.closest("a, button")) location.hash = row.dataset.href;
@@ -996,6 +1126,42 @@ async function route() {
   }
   document.title = `${humanize(section || "overview")} · Local SEO Audit`;
 }
+
+document.addEventListener("change", (e) => {
+  const svc = e.target.closest("[data-svc]");
+  const kwBox = e.target.closest("[data-kw]");
+  const pid = location.hash.split("/")[1];
+  if (svc && pid) {
+    kwAction(() => api(`/v1/projects/${encodeURIComponent(pid)}/services/${encodeURIComponent(svc.dataset.svc)}`, {
+      method: "PATCH", body: JSON.stringify({ selected: svc.checked }),
+    }), svc.checked ? "Core service added — regenerate keywords to use it" : "Core service removed");
+  }
+  if (kwBox) {
+    kwAction(() => api(`/v1/projects/${encodeURIComponent(kwBox.dataset.project)}/keywords/${encodeURIComponent(kwBox.dataset.kw)}`, {
+      method: "PATCH", body: JSON.stringify({ active: kwBox.checked }),
+    }));
+  }
+});
+
+document.addEventListener("submit", (e) => {
+  const f = e.target.closest("[data-form]");
+  if (!f || f.id === "projectForm") return;
+  e.preventDefault();
+  const pid = encodeURIComponent(f.dataset.project);
+  const value = f.querySelector("input").value.trim();
+  if (!value) return;
+  if (f.dataset.form === "add-service") {
+    kwAction(() => api(`/v1/projects/${pid}/services`, { method: "POST", body: JSON.stringify({ name: value }) }), "Service added");
+  } else if (f.dataset.form === "add-keyword") {
+    kwAction(() => api(`/v1/projects/${pid}/keywords`, { method: "POST", body: JSON.stringify({ keyword: value }) }), "Keyword added");
+  } else if (f.dataset.form === "add-area") {
+    kwAction(async () => {
+      const areas = await currentAreas(f.dataset.project);
+      areas.push({ name: value });
+      return api(`/v1/projects/${pid}/service-areas`, { method: "PUT", body: JSON.stringify(areas) });
+    }, "Area added — regenerate keywords to use it");
+  }
+});
 
 window.addEventListener("hashchange", route);
 refreshHealth();

@@ -18,6 +18,7 @@ from app.providers import get_places_client, get_serpapi_client
 from app.providers.base import ProviderError
 from app.providers.google_places import PROVIDER as PLACES
 from app.providers.serpapi import PROVIDER as SERPAPI
+from app.services import keywords as keywords_service
 from app.services import quota
 from app.services.business_lookup import clean_website
 from app.services.discovery import ManualReviewRequired, discover, verify_linked
@@ -31,6 +32,7 @@ from app.services.place_profile import (
 )
 from app.services.provider_cache import store_response
 from app.services.review_analysis import analyze_project_reviews
+from app.services.service_catalog import build_catalog
 from app.services.website_discovery import discover_website, latest_website_profile
 from app.workers.pipeline import Step, StepContext, StepSkipped, register
 
@@ -205,6 +207,16 @@ def analyze_reviews(ctx: StepContext) -> dict:
     return analyze_project_reviews(ctx.db, _project(ctx))
 
 
+def build_services(ctx: StepContext) -> dict:
+    """Phase 6: merge Google categories, website offerings and review topics into one service list."""
+    return build_catalog(ctx.db, _project(ctx))
+
+
+def generate_keywords(ctx: StepContext) -> dict:
+    """Phase 6: keywords for the core services x service areas (no SerpApi credits used here)."""
+    return keywords_service.generate(ctx.db, _project(ctx))
+
+
 def verify_match(ctx: StepContext) -> dict:
     """Score the linked profile against the website now that both are fresh (brief: match_confidence)."""
     project = _project(ctx)
@@ -234,6 +246,8 @@ register(
         Step("fetch_reviews", fetch_reviews, required=False),
         Step("crawl_website", crawl_website, required=False),
         Step("analyze_reviews", analyze_reviews, required=False),
+        Step("build_services", build_services, required=False),
+        Step("generate_keywords", generate_keywords, required=False),
         Step("verify_match", verify_match, required=False),
     ],
 )
