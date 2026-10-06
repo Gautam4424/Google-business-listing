@@ -1,0 +1,5 @@
+# Mac/Linux scripts must keep LF line endings; Windows scripts use CRLF.
+*.sh       text eol=lf
+*.command  text eol=lf
+*.bat      text eol=crlf
+*.ps1      text eol=crlf

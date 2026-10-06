@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 [tool.ruff]
 line-length = 110
 target-version = "py312"
-extend-exclude = ["legacy", "migrations/versions"]
+extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

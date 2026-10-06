@@ -2,7 +2,11 @@
 .env
 .env.*
 !.env.example
-legacy
+docs
+scripts
+*.bat
+*.command
+.github
 **/__pycache__
 .pytest_cache
 .ruff_cache

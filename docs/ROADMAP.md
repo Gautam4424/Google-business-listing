@@ -2,7 +2,7 @@
 
 - **End goal:** "Local SEO Audit API — Product & Workflow Brief" (all sections, including the brief's phase-two features).
 - **Constraint:** zero spend; free tiers only (Google Places free monthly usage, SerpApi 250 searches/month, local NLP models, self-hosted Docker).
-- **Detail:** architecture and algorithms are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); field-level gaps are in [GAP_ANALYSIS.md](GAP_ANALYSIS.md).
+- **Detail:** architecture and algorithms are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); API keys and free tiers in [API_KEYS_AND_FREE_TIERS.md](API_KEYS_AND_FREE_TIERS.md).
 
 Status legend:
 - `[x]` done
@@ -39,15 +39,15 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 - [x] Clone repo, read `project_documentation.md`
 - [x] Build and run the old app in Docker (`gbp-scraper` container, http://localhost:5000)
-- [x] Remove DuckDuckGo social-profile fallback (latency) — now in `legacy/src/scraper.py`
+- [x] Remove DuckDuckGo social-profile fallback (latency) in the old scraper
 - [x] Live test of old scraper (11 listings), bug list written
-- [x] Gap analysis vs brief (`GAP_ANALYSIS.md`)
+- [x] Gap analysis vs brief (since removed: superseded by this roadmap)
 - [x] Architecture + algorithms (`IMPLEMENTATION_PLAN.md`)
 - [x] Free-tier research (Places, GBP API, SerpApi, DataForSEO)
 - [x] **You:** Google Cloud project + Places API (New) key, verified working on 2026-10-07 (diagnostic job found the Googleplex place_id)
 - [x] **You:** SerpApi key (Free Plan, 250/month) verified 2026-10-07; diagnostic job fully green
 - [ ] **You:** decide whether any GBP listings are owned/managed. If yes, apply for Business Profile API access (approval can take weeks, so apply early).
-- [x] Layout: new code in `app/`, old code moved to `legacy/`
+- [x] Layout: new code in `app/`; old Selenium scraper removed (still on the `main` branch history)
 
 **Done when:** API keys are available in a local `.env` file (never committed).
 
@@ -234,7 +234,7 @@ Effort estimates are rough, for one developer working with Claude, in working da
 - [ ] Retry/backoff for providers; clear error messages when a quota is reached
 - [ ] Structured logging; job failure details visible
 - [ ] End-to-end tests with mocked providers (`completed` and `partial_success` paths)
-- [ ] Remove `legacy/` scraper once v1 is accepted
+- [x] Remove the old Selenium scraper (`legacy/`)
 - [ ] Update README + replace `project_documentation.md`
 
 **Done when:** CI is green, there are no secrets in the repo, and retention rules are enforced.
@@ -257,6 +257,5 @@ Each item is independent and can be picked in any order after v1. ⚠️ marks i
 
 ## What you need to do next
 
-1. Phase 0 open items: Google Cloud API key, SerpApi key, GBP API access decision.
-2. Approve: new code in `app/`, old code moved to `legacy/`.
-3. Then Phase 1 starts.
+1. Optional: set `NOMINATIM_USER_AGENT` (your email) or enable the Geocoding API, for map-pin distances on sites without coordinates.
+2. Next build phases: 6 (keywords) → 7 (rankings) → 8 (competitors & gaps) → 9 (reports) → 10 (hardening).
