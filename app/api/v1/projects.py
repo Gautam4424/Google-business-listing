@@ -97,7 +97,9 @@ def get_profile(project_id: uuid.UUID, db: Session = Depends(get_db)) -> Profile
         select(AuditJob)
         .where(
             AuditJob.project_id == project.id,
-            AuditJob.job_type.in_(("gbp_audit", "website_discovery", "discover_business", "review_analysis")),
+            AuditJob.job_type.in_(
+                ("gbp_audit", "website_discovery", "discover_business", "review_analysis", "ranking_check")
+            ),
         )
         .order_by(AuditJob.created_at.desc())
         .limit(1)

@@ -17,6 +17,13 @@ class SerpApiClient:
         """Plan and remaining searches. Free: does not use a search."""
         return self._get("/account.json", {})
 
+    def locations(self, query: str, limit: int = 10) -> list[dict]:
+        """SerpApi's Google locations list (canonical names for `location=`). Free: no search used."""
+        response = self._client.get("/locations.json", params={"q": query, "limit": limit})
+        if response.status_code >= 400:
+            raise ProviderError(PROVIDER, response.text[:200], response.status_code)
+        return response.json()
+
     def search(self, params: dict) -> dict:
         """One search (uses 1 of the monthly searches)."""
         return self._get("/search.json", params)

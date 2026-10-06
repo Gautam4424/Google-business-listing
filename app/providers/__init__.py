@@ -12,4 +12,4 @@ def get_places_client() -> GooglePlacesClient | None:
 def get_serpapi_client() -> SerpApiClient | None:
     s = get_settings()
     key = s.serpapi_key.get_secret_value() if s.serpapi_key else ""
-    return SerpApiClient(key, timeout=s.http_timeout_seconds) if key else None
+    return SerpApiClient(key, timeout=s.serpapi_timeout_seconds) if key else None

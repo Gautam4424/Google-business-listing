@@ -30,9 +30,15 @@ class Settings(BaseSettings):
     serpapi_reviews_enabled: bool = False
     # Max active keywords per project (each keyword = 2 SerpApi searches per ranking run).
     keyword_cap: int = 10
+    # full = Local Pack + Local Finder (2 SerpApi searches per keyword);
+    # maps_only = 1 per keyword, Local Pack estimated from the Maps top 3
+    ranking_mode: str = "full"
+    ranking_cache_hours: int = 24  # re-checking a keyword within this window reuses the saved result (free)
+    maps_zoom: int = 14  # Local Finder search area around the keyword's coordinates
 
     google_data_ttl_days: int = 30
     http_timeout_seconds: float = 20.0
+    serpapi_timeout_seconds: float = 120.0  # Google searches through SerpApi can take 30-60 s
     nominatim_user_agent: str = "local-seo-audit/0.1"
     # Re-render JavaScript-only websites with headless Chromium (needs the browser in the image).
     browser_fallback: bool = True

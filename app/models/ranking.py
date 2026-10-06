@@ -61,6 +61,12 @@ class RankingRun(IdMixin, Base):
     raw_response_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("data_sources.id", ondelete="SET NULL")
     )
+    keyword: Mapped[str | None] = mapped_column(String(300))  # the exact query sent
+    search_location: Mapped[str | None] = mapped_column(String(300))  # provider's location (canonical / ll)
+    pack_shown: Mapped[bool | None] = mapped_column(Boolean)  # local_pack: did Google show one at all
+    estimated: Mapped[bool] = mapped_column(Boolean, default=False)  # local_pack derived from Maps top 3
+    from_cache: Mapped[bool] = mapped_column(Boolean, default=False)
+    client_rank: Mapped[int | None] = mapped_column(Integer)
 
 
 class RankingResult(IdMixin, Base):
@@ -71,6 +77,12 @@ class RankingResult(IdMixin, Base):
     )
     rank: Mapped[int] = mapped_column(Integer)
     place_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    cid: Mapped[str | None] = mapped_column(
+        String(40), index=True
+    )  # Google's numeric CID (links Pack <-> Maps)
+    phone: Mapped[str | None] = mapped_column(String(50))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     business_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("businesses.id", ondelete="SET NULL")
     )

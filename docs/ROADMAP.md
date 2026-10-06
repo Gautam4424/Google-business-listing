@@ -24,11 +24,11 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 4 | GBP profile audit | §1 | **Done** (`gbp_audit` job + pin distance) | 100% | — |
 | 5 | Reviews & NLP | Step 5 | **Done** (GBP API for managed listings optional) | 100% | — |
 | 6 | Service list & keyword generator | Step 4, §2 | **Done** (competitor patterns come with Phase 8) | 100% | — |
-| 7 | Rank tracking & visibility | §2 | Not started | 0% | 4 d |
+| 7 | Rank tracking & visibility | §2 | **Done** | 100% | — |
 | 8 | Competitors & gap analysis | §3 | Not started | 0% | 3 d |
 | 9 | Full pipeline, reports & UI | §4, §7 | Partial (new UI shell done) | 20% | 3 d |
 | 10 | Hardening & compliance | §6 | Not started | 0% | 3 d |
-| **v1 total (0–10)** | | | | **≈ 70%** | **≈ 14 d left (~3 weeks)** |
+| **v1 total (0–10)** | | | | **≈ 80%** | **≈ 9 d left (~2 weeks)** |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
 
 ---
@@ -181,17 +181,22 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 **Goal:** Local Pack + Local Finder positions and the visibility score.
 
-- [ ] `SerpProvider` interface + SerpApi adapter (DataForSEO adapter later)
-- [ ] Local Pack collection (Google Search, top 3)
-- [ ] Local Finder / Maps collection (10–20 results)
-- [ ] Every result: `rank, place_id, business_name, address, primary_category, rating, review_count, website_url, maps_url, is_client_business`
-- [ ] `ranking_runs` with full search context (time, country, language, device, lat/lng, radius, provider, result type)
-- [ ] Metrics: Pack/Finder rank per keyword, appearance counts, averages, top-3/top-10/not-found
-- [ ] Visibility score: Pack 100/70/50; Finder 40/20/10; `Σ / (140 × N) × 100`
-- [ ] Change since previous run (same search context)
-- [ ] `POST /v1/projects/{id}/rankings/run`, `GET /v1/projects/{id}/rankings`
+- [x] SerpApi adapter (`app/services/rankings.py`); provider-swap interface postponed (only SerpApi in use)
+- [x] Local Pack: `engine=google`, mobile, searched **from the keyword's coordinates** (Google `uule` coordinate code; works for suburbs missing from Google's named-location list), named location (free Locations API) when no coordinates
+- [x] Local Finder / Maps: `engine=google_maps` with `ll=@lat,lng,14z` (up to 20 results)
+- [x] Every result stored: rank, place_id, CID, business_name, address, category, rating, review_count, phone, website, maps_url, coordinates, `is_client_business` (client found by place_id → CID → name + phone/domain/postcode)
+- [x] `ranking_runs` with full search context: time, keyword, country, language, device, location name, coordinates, provider location (`uule`/`ll`), radius, provider, result type, `pack_shown`, `from_cache`
+- [x] Metrics: Pack/Finder rank per keyword, appearance counts, averages, top-3/top-10/not-found
+- [x] Visibility score: Pack 100/70/50; Finder 40/20/10; `Σ / (140 × N) × 100`
+- [x] Change since the previous check, per keyword and overall (only over keywords checked both times)
+- [x] Credits: `RANKING_MODE` full (2/keyword) or maps_only (1/keyword, Local Pack estimated); estimate with the **real SerpApi balance + renewal date** (free account endpoint); refused when not enough; 24 h free reuse (`RANKING_CACHE_HOURS`); errored searches refunded; 120 s SerpApi timeout
+- [x] `ranking_check` job: check_budget → collect_rankings (partial → `partial_success`) → compute_visibility
+- [x] `POST /v1/projects/{id}/rankings/run`, `GET /v1/projects/{id}/rankings` (+ history, top businesses), `GET …/rankings/estimate`
+- [x] UI "Rankings" card: score + change, stats, history bars, keyword table with movement, businesses appearing most, "Run ranking check" with mode choice and cost confirmation
 
 **Done when:** a rankings run returns per-keyword ranks + a 0–100 score, and a second run shows deltas.
+
+✅ **Verified 2026-10-07** on Proximity Plumbing with 2 keywords (~7 SerpApi credits incl. diagnosis): "plumber in Point Piper" Local Pack #1 / Finder #1, "blocked drains near me" Local Pack #1 / Finder #17, visibility 89.3, competitors (Mint Plumbing Vaucluse, JB's Plumbing & Drains, Sydney Blocked Drains…) stored. Found and fixed: suburbs missing from Google's location list (→ coordinate search), 20 s timeout (→ 120 s), change compared like-for-like. 112 tests passing.
 
 ---
 

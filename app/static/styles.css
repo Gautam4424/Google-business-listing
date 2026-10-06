@@ -311,6 +311,30 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .nap-table td:first-child { white-space: nowrap; }
 .notes { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
 
+/* Rankings (Phase 7) */
+.card-body .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.run-box { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; display: grid; gap: 8px; }
+.run-mode { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+.run-mode label { display: flex; gap: 6px; align-items: center; font-weight: 500; }
+.run-cost { margin: 0; font-size: 13.5px; }
+.vis-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 24px; align-items: center; margin-bottom: 18px; }
+.vis-score .big { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.vis-score .big small { font-size: 15px; color: var(--muted); font-weight: 500; }
+.vis-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 10px; }
+.vis-stats div { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.vis-stats b { font-size: 18px; }
+.vis-stats span { display: block; font-size: 12px; color: var(--muted); }
+.history { display: flex; align-items: flex-end; gap: 4px; height: 70px; }
+.history span { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; width: 22px; }
+.history i { width: 12px; background: var(--accent); border-radius: 3px 3px 0 0; }
+.history small { font-size: 10px; color: var(--muted); }
+.rank-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.rank-table td, .rank-table th { padding: 8px 10px; font-size: 13px; }
+.top-biz { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.top-biz li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); }
+.top-biz li.is-client { outline: 2px solid var(--accent); }
+@media (max-width: 1000px) { .rank-grid, .vis-row { grid-template-columns: minmax(0, 1fr); } }
+
 /* Services & keywords (Phase 6) */
 .section-title { font-size: 18px; margin: 10px 0 12px; }
 .kw-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: start; }

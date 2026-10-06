@@ -26,6 +26,14 @@ class StepSkipped(Exception):
     """Raise from a step when it cannot run but that is not an error (e.g. an optional key is not set)."""
 
 
+class StepPartial(Exception):
+    """Raise from a step that did part of its work (e.g. some searches failed): result kept, job partial."""
+
+    def __init__(self, message: str, result: dict):
+        super().__init__(message)
+        self.result = result
+
+
 @dataclass
 class StepContext:
     db: Session
@@ -91,6 +99,10 @@ def run_job(db: Session, job_id: uuid.UUID) -> AuditJob:
             _set_step(job, i, status="succeeded", result=result)
         except StepSkipped as exc:
             _set_step(job, i, status="skipped", error=redact(str(exc)))
+        except StepPartial as exc:
+            ctx.results[step.name] = exc.result
+            _set_step(job, i, status="partial", result=exc.result, error=redact(str(exc)))
+            optional_failed = True
         except Exception as exc:
             db.rollback()
             log.exception("Job %s step %s failed", job.id, step.name)

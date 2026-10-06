@@ -26,6 +26,11 @@ const STEP_LABEL = {
   match_business: "Find & verify the Google listing",
   verify_match: "Verify the listing match",
   analyze_reviews: "Review sentiment & topics",
+  build_services: "Service list",
+  generate_keywords: "Keywords",
+  check_budget: "Check SerpApi credits",
+  collect_rankings: "Local Pack & Local Finder searches",
+  compute_visibility: "Visibility score",
 };
 const stepLabel = (name) => STEP_LABEL[name] || humanize(name);
 const STEP_ICON = { succeeded: "✓", failed: "!", skipped: "–", running: "…", pending: "" };
@@ -468,6 +473,100 @@ async function currentAreas(projectId) {
   return (await api(`/v1/projects/${encodeURIComponent(projectId)}`)).service_areas || [];
 }
 
+
+/* ---------- Rankings (Phase 7) ---------- */
+
+function rankCell(rank, prev, extra = "") {
+  if (rank == null) return `<span class="muted">not found</span>${extra}`;
+  let move = "";
+  if (prev !== undefined) {
+    if (prev == null) move = ` <span class="pill ok small">new</span>`;
+    else if (prev > rank) move = ` <span class="ok-text small">▲${prev - rank}</span>`;
+    else if (prev < rank) move = ` <span class="bad-text small">▼${rank - prev}</span>`;
+  }
+  return `<b>#${esc(rank)}</b>${move}${extra}`;
+}
+
+function rankingsCard(projectId, data, est) {
+  const latest = data.latest;
+  const runBox = `<div class="run-box" id="run-box" hidden>
+      <div class="run-mode"><label><input type="radio" name="rmode" value="full" ${est?.mode !== "maps_only" ? "checked" : ""}> Full · Local Pack + Maps (2 per keyword)</label>
+        <label><input type="radio" name="rmode" value="maps_only" ${est?.mode === "maps_only" ? "checked" : ""}> Maps only (1 per keyword, Local Pack estimated)</label></div>
+      <p class="run-cost" id="run-cost"></p>
+      <div class="toolbar"><button class="btn primary sm" data-action="rank-confirm" data-project="${esc(projectId)}">Run now</button>
+        <button class="btn ghost sm" data-action="rank-cancel">Cancel</button></div></div>`;
+  const head = `<div class="card-head"><div><h2>Rankings</h2>
+      <p class="muted">${latest ? `Last checked ${esc(timeAgo(latest.checked_at))} · ${latest.mode === "maps_only" ? "Maps only (Local Pack estimated)" : "Local Pack + Local Finder"}` : "Where the business appears on Google for its active keywords."}</p></div>
+      <button class="btn ${latest ? "" : "primary"} sm" data-action="rank-run" data-project="${esc(projectId)}">Run ranking check</button></div>`;
+  if (!latest) {
+    return `<div class="card">${head}<div class="card-body">${runBox}
+      <p class="muted">No ranking check yet. Each check uses SerpApi searches only for keywords that are <b>On</b> (see Services & keywords below).</p></div></div>`;
+  }
+  const sm = latest.summary;
+  const changeNote = sm.compared_keywords != null && sm.compared_keywords < sm.keywords
+    ? `<div class="muted small">change over the ${esc(sm.compared_keywords)} keywords checked both times</div>` : "";
+  const change = sm.visibility_change == null ? "" : sm.visibility_change > 0 ? `<span class="pill ok">▲ ${sm.visibility_change}</span>`
+    : sm.visibility_change < 0 ? `<span class="pill bad">▼ ${Math.abs(sm.visibility_change)}</span>` : `<span class="pill idle">no change</span>`;
+  const rows = latest.keywords.map((k) => `<tr>
+      <td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div></td>
+      <td>${k.local_pack_shown === false ? `<span class="muted">no Local Pack shown</span>` : rankCell(k.local_pack_rank, k.previous_local_pack_rank, k.local_pack_estimated ? ` <span class="tag">est.</span>` : "")}</td>
+      <td>${rankCell(k.local_finder_rank, k.previous_local_finder_rank)}</td>
+      <td class="num">${esc(k.visibility)}</td></tr>`).join("");
+  const history = data.history.length > 1
+    ? `<div class="history">${data.history.slice().reverse().map((h) => `<span title="${esc(fullTime(h.checked_at))}"><i style="height:${Math.max(4, h.visibility_score)}%"></i><small>${esc(Math.round(h.visibility_score))}</small></span>`).join("")}</div>` : "";
+  const top = data.top_businesses.map((b) => `<li class="${b.is_client ? "is-client" : ""}"><span>${esc(b.business_name)}${b.is_client ? ` <span class="tag">you</span>` : ""}</span>
+      <span class="muted small">${esc(b.appearances)}× · best #${esc(b.best_rank)}${b.local_pack ? ` · ${esc(b.local_pack)} Local Pack` : ""}</span></li>`).join("");
+  return `<div class="card">${head}<div class="card-body">${runBox}
+    <div class="vis-row">
+      <div class="vis-score"><div class="label">Visibility score</div><div class="big">${esc(sm.visibility_score)}<small>/100</small></div>${change}${changeNote}</div>
+      <div class="vis-stats">
+        <div><b>${sm.in_local_pack}</b>/${sm.keywords}<span>in Local Pack</span></div>
+        <div><b>${sm.in_local_finder}</b>/${sm.keywords}<span>in Local Finder</span></div>
+        <div><b>${sm.top_3}</b><span>top 3</span></div>
+        <div><b>${sm.top_10}</b><span>top 10</span></div>
+        <div><b>${sm.not_found}</b><span>not found</span></div>
+        <div><b>${sm.average_local_pack_rank ?? "—"}</b><span>avg Pack rank</span></div>
+        <div><b>${sm.average_local_finder_rank ?? "—"}</b><span>avg Finder rank</span></div>
+      </div>${history}
+    </div>
+    <div class="rank-grid">
+      <div class="table-wrap"><table class="rank-table"><thead><tr><th>Keyword</th><th>Local Pack</th><th>Local Finder</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div><div class="label">Businesses appearing most</div><ul class="top-biz">${top}</ul>
+        <p class="muted small">Competitor analysis builds on these (next phase).</p></div>
+    </div></div></div>`;
+}
+
+async function renderRankingSection(project) {
+  const holder = document.getElementById("rank-section");
+  if (!holder || !project.place_id) return;
+  try {
+    const data = await api(`/v1/projects/${encodeURIComponent(project.id)}/rankings`);
+    holder.innerHTML = rankingsCard(project.id, data, { mode: data.latest?.mode });  // cost is fetched on "Run"
+  } catch (err) {
+    holder.innerHTML = `<div class="card card-body muted">Could not load rankings: ${esc(err.message)}</div>`;
+  }
+}
+
+async function showRunCost(projectId) {
+  const box = document.getElementById("run-box");
+  if (!box) return;
+  box.hidden = false;
+  const mode = box.querySelector('input[name="rmode"]:checked')?.value || "full";
+  const cost = document.getElementById("run-cost");
+  cost.innerHTML = `<span class="spinner"></span> Checking credits…`;
+  try {
+    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}`);
+    const ok = e.enough;
+    cost.innerHTML = `This check uses <b>${e.searches_needed}</b> SerpApi search${e.searches_needed === 1 ? "" : "es"} for <b>${e.active_keywords}</b> active keyword${e.active_keywords === 1 ? "" : "s"}`
+      + (e.searches_from_cache ? ` (${e.searches_from_cache} reused free from the last ${24} h)` : "")
+      + ` · <b>${e.credits_left}</b> left${e.renews_on ? ` · renews ${esc(e.renews_on)}` : ""}.`
+      + (ok ? "" : ` <span class="bad-text">Not enough searches left — switch some keywords off or use Maps only.</span>`);
+    box.querySelector('[data-action="rank-confirm"]').disabled = !ok || e.active_keywords === 0;
+  } catch (err) {
+    cost.textContent = err.message;
+  }
+}
+
 async function startReviewAnalysis(projectId, button) {
   if (button) {
     button.disabled = true;
@@ -795,8 +894,10 @@ async function renderProject(id, silent = false) {
         ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
         <span>${esc(project.name)}</span></p></div>
       <div class="toolbar">${websiteBtn}${auditBtn}</div></div>
-    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}${body}
+    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}
+      <section id="rank-section"></section>${body}
       <section id="kw-section"></section></div>`;
+  renderRankingSection(project);
   renderKeywordSection(project);
 
   if (running) schedule(() => renderProject(id, true), 2000);
@@ -1082,6 +1183,18 @@ document.addEventListener("click", (e) => {
   if (action?.dataset.action === "discover") return startDiscovery(action.dataset.project, action);
   if (action?.dataset.action === "reanalyse") return startReviewAnalysis(action.dataset.project, action);
   const pid = action?.dataset.project ? encodeURIComponent(action.dataset.project) : null;
+  if (action?.dataset.action === "rank-run") return showRunCost(action.dataset.project);
+  if (action?.dataset.action === "rank-cancel") {
+    document.getElementById("run-box").hidden = true;
+    return;
+  }
+  if (action?.dataset.action === "rank-confirm") {
+    const mode = document.querySelector('#run-box input[name="rmode"]:checked')?.value || "full";
+    action.disabled = true;
+    action.innerHTML = `<span class="spinner"></span>Starting…`;
+    return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
+      "Ranking check started");
+  }
   if (action?.dataset.action === "svc-refresh") {
     return kwAction(() => api(`/v1/projects/${pid}/services/refresh`, { method: "POST" }), "Services rebuilt from the latest audit");
   }
@@ -1128,6 +1241,11 @@ async function route() {
 }
 
 document.addEventListener("change", (e) => {
+  if (e.target.name === "rmode") {
+    const pid0 = location.hash.split("/")[1];
+    if (pid0) showRunCost(pid0);
+    return;
+  }
   const svc = e.target.closest("[data-svc]");
   const kwBox = e.target.closest("[data-kw]");
   const pid = location.hash.split("/")[1];
