@@ -1,0 +1,1003 @@
+"use strict";
+
+/* ---------- helpers ---------- */
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const view = $("#view");
+const ACTIVE = new Set(["queued", "running"]);
+
+const SKU_INFO = {
+  google_places_text_search: { name: "Google Places · Text Search", use: "Finding & matching businesses" },
+  google_places_text_search_enterprise: { name: "Google Places · Quick-fill lookups", use: "Paste-one-line project setup" },
+  google_places_details: { name: "Google Places · Place Details", use: "Profiles, hours, reviews" },
+  google_geocoding: { name: "Google Geocoding", use: "Addresses → coordinates" },
+  serpapi_search: { name: "SerpApi searches", use: "Local Pack & Local Finder ranks" },
+};
+const STEP_LABEL = {
+  check_database: "Database connection",
+  check_google_places: "Google Places API key",
+  check_serpapi: "SerpApi key",
+  resolve_place: "Find the business on Google",
+  fetch_profile: "Google profile",
+  fetch_reviews: "Top reviews",
+  crawl_website: "Website: name, address, phone, social links & offerings",
+  discover_website: "Read the website",
+  read_website: "Read the website",
+  match_business: "Find & verify the Google listing",
+  verify_match: "Verify the listing match",
+  analyze_reviews: "Review sentiment & topics",
+};
+const stepLabel = (name) => STEP_LABEL[name] || humanize(name);
+const STEP_ICON = { succeeded: "✓", failed: "!", skipped: "–", running: "…", pending: "" };
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+const humanize = (s) => String(s || "").replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+const fmtNum = (n) => Number(n || 0).toLocaleString();
+const shortId = (id) => String(id).slice(0, 8);
+
+function timeAgo(iso) {
+  if (!iso) return "—";
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 45) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+const fullTime = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+
+function duration(start, end) {
+  if (!start) return "—";
+  const ms = (end ? new Date(end) : new Date()) - new Date(start);
+  if (ms < 1000) return `${Math.max(ms, 0)} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`;
+}
+const badge = (status) => `<span class="badge ${esc(status)}">${esc(humanize(status))}</span>`;
+
+class ApiError extends Error {
+  constructor(status, detail) {
+    super(typeof detail === "string" ? detail : `Request failed (${status})`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
+  if (!res.ok) throw new ApiError(res.status, body?.detail ?? body);
+  return body;
+}
+
+function toast(message, kind = "") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.textContent = message;
+  $("#toasts").append(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+/* ---------- polling ---------- */
+
+let pollTimer = null;
+let navCount = 0; // bumps on every navigation; renders drop stale results
+function schedule(fn, ms) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(fn, ms);
+}
+
+async function refreshHealth() {
+  const el = $("#health");
+  try {
+    const h = await api("/health");
+    el.className = "health ok";
+    el.lastElementChild.textContent = `API online · DB ${h.database}`;
+  } catch {
+    el.className = "health bad";
+    el.lastElementChild.textContent = "API or database offline";
+  }
+}
+
+/* ---------- shared actions ---------- */
+
+async function runDiagnostic(button) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Starting…`;
+  }
+  try {
+    const job = await api("/v1/jobs", { method: "POST", body: JSON.stringify({ job_type: "diagnostic" }) });
+    toast("Diagnostic job queued");
+    location.hash = `#jobs/${job.id}`;
+  } catch (err) {
+    toast(err.message, "bad");
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Run diagnostic";
+    }
+  }
+}
+
+function stepDots(steps) {
+  if (!steps?.length) return `<span class="muted">—</span>`;
+  return `<span class="step-dots">${steps.map((s) => `<i class="${esc(s.status)}" title="${esc(stepLabel(s.name))}: ${esc(s.status)}"></i>`).join("")}</span>`;
+}
+
+function jobsTable(jobs, projects = {}) {
+  if (!jobs.length) {
+    return `<div class="empty">
+      <svg viewBox="0 0 24 24"><path d="M3 5h2v2H3V5zm4 0h14v2H7V5zM3 11h2v2H3v-2zm4 0h14v2H7v-2zm-4 6h2v2H3v-2zm4 0h14v2H7v-2z"/></svg>
+      <h3>No jobs yet</h3><p>Run a diagnostic to check the database and your API keys.</p>
+      <button class="btn primary" data-action="diagnostic">Run diagnostic</button></div>`;
+  }
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Job</th><th>Status</th><th>Steps</th><th>Project</th><th>Created</th><th>Duration</th></tr></thead>
+    <tbody>${jobs.map((j) => `
+      <tr class="clickable" data-href="#jobs/${esc(j.id)}">
+        <td><b>${esc(humanize(j.job_type))}</b><div class="mono muted">${esc(shortId(j.id))}</div></td>
+        <td>${badge(j.status)}</td>
+        <td>${stepDots(j.steps)}</td>
+        <td>${j.project_id ? esc(projects[j.project_id]?.name || shortId(j.project_id)) : `<span class="muted">—</span>`}</td>
+        <td title="${esc(fullTime(j.created_at))}">${esc(timeAgo(j.created_at))}</td>
+        <td class="mono">${esc(duration(j.started_at, j.finished_at))}</td>
+      </tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+/* ---------- Overview ---------- */
+
+function setupChecks(lastDiag) {
+  const step = (name) => lastDiag?.steps?.find((s) => s.name === name);
+  const row = (state, title, detail) => `
+    <div class="check ${state}"><div class="ico">${{ ok: "✓", bad: "!", warn: "?", idle: "·" }[state]}</div>
+    <div><div class="t">${esc(title)}</div><div class="d">${detail}</div></div></div>`;
+  const fromStep = (s, okText) => {
+    if (!s) return ["idle", "Not checked yet — run a diagnostic."];
+    if (s.status === "succeeded") return ["ok", okText(s.result || {})];
+    if (s.status === "skipped") return ["warn", esc(s.error || "Skipped")];
+    if (s.status === "failed") return ["bad", esc(s.error || "Failed")];
+    return ["idle", esc(humanize(s.status))];
+  };
+  const db = fromStep(step("check_database"), () => "Connected.");
+  const places = fromStep(step("check_google_places"), (r) => `Key works — found <b>${esc(r.name || "a place")}</b>.`);
+  const serp = fromStep(step("check_serpapi"), (r) =>
+    `Key works — ${esc(r.plan_name || "plan")}, ${fmtNum(r.plan_searches_left)} searches left.`);
+  return `<div class="checks">
+    ${row(db[0], "Database", db[1])}
+    ${row(places[0], "Google Places API key", places[1])}
+    ${row(serp[0], "SerpApi key", serp[1])}
+  </div>
+  ${lastDiag ? `<p class="muted" style="margin:12px 0 0;font-size:12.5px">Last checked ${esc(timeAgo(lastDiag.created_at))} · <a href="#jobs/${esc(lastDiag.id)}">view job</a></p>` : ""}`;
+}
+
+function usageMeters(usage) {
+  return `<div class="meter-list">${usage.map((u) => {
+    const info = SKU_INFO[u.sku] || { name: u.sku, use: "" };
+    const pct = u.monthly_limit ? Math.min(100, (u.month_count / u.monthly_limit) * 100) : 0;
+    const level = pct >= 90 ? "bad" : pct >= 70 ? "warn" : "";
+    const daily = u.daily_limit ? ` · today ${fmtNum(u.day_count)} / ${fmtNum(u.daily_limit)}` : "";
+    return `<div>
+      <div class="meter-top"><span class="name">${esc(info.name)}</span>
+        <span class="nums">${fmtNum(u.month_count)} / ${fmtNum(u.monthly_limit)}</span></div>
+      <div class="bar ${level}"><span style="width:${pct.toFixed(1)}%"></span></div>
+      <div class="meter-sub">${esc(info.use)}${daily} · <b>${fmtNum(u.remaining)}</b> left</div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+async function renderOverview(silent = false) {
+  const nav = navCount;
+  if (!silent) view.innerHTML = `
+    <div class="page-head"><div><h1>Overview</h1><p class="muted">System status, free-tier usage and recent activity.</p></div>
+      <button class="btn primary" data-action="diagnostic">Run diagnostic</button></div>
+    <div class="stack"><div class="skeleton" style="height:96px"></div><div class="skeleton" style="height:260px"></div></div>`;
+
+  const [projects, jobs, usage, health] = await Promise.all([
+    api("/v1/projects?limit=200"),
+    api("/v1/jobs?limit=200"),
+    api("/v1/usage"),
+    api("/health").catch(() => null),
+  ]);
+  if (nav !== navCount) return;
+  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const lastDiag = jobs.find((j) => j.job_type === "diagnostic" && !ACTIVE.has(j.status));
+  const counts = jobs.reduce((acc, j) => ((acc[j.status] = (acc[j.status] || 0) + 1), acc), {});
+  const active = (counts.queued || 0) + (counts.running || 0);
+  const problems = (counts.failed || 0) + (counts.partial_success || 0);
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Overview</h1><p class="muted">System status, free-tier usage and recent activity.</p></div>
+      <button class="btn primary" data-action="diagnostic">Run diagnostic</button></div>
+    <div class="stack">
+      <div class="stats">
+        <div class="card stat"><div class="label">System</div>
+          <div class="value" style="color:var(--${health ? "ok" : "bad"})">${health ? "Online" : "Offline"}</div>
+          <div class="sub">API · database ${esc(health?.database || "unavailable")}</div></div>
+        <div class="card stat"><div class="label">Projects</div><div class="value">${fmtNum(projects.length)}</div>
+          <div class="sub"><a href="#projects">Manage projects →</a></div></div>
+        <div class="card stat"><div class="label">Jobs</div><div class="value">${fmtNum(jobs.length)}</div>
+          <div class="sub">${fmtNum(counts.completed || 0)} completed · ${fmtNum(active)} active</div></div>
+        <div class="card stat"><div class="label">Need attention</div>
+          <div class="value" style="color:var(--${problems ? "warn" : "text"})">${fmtNum(problems)}</div>
+          <div class="sub">failed or partial jobs</div></div>
+      </div>
+      <div class="cols">
+        <div class="card"><div class="card-head"><div><h2>Free-tier usage</h2>
+          <p class="muted">This month. The app refuses calls before these limits, so nothing is billed.</p></div></div>
+          <div class="card-body">${usageMeters(usage)}</div></div>
+        <div class="card"><div class="card-head"><div><h2>Setup check</h2>
+          <p class="muted">From the latest diagnostic job.</p></div></div>
+          <div class="card-body">${setupChecks(lastDiag)}</div></div>
+      </div>
+      <div class="card"><div class="card-head"><h2>Recent jobs</h2><a href="#jobs" class="btn ghost sm">All jobs</a></div>
+        <div class="card-body" style="padding:8px 0 0">${jobsTable(jobs.slice(0, 6), projectMap)}</div></div>
+    </div>`;
+
+  if (active) schedule(() => renderOverview(true), 3000);
+}
+
+/* ---------- Projects ---------- */
+
+function projectCard(p) {
+  const areas = p.service_areas.length
+    ? `<div class="chips">${p.service_areas.map((a) => `<span class="chip" title="${a.latitude != null ? esc(`${a.latitude}, ${a.longitude}`) : "no coordinates"}">📍 ${esc(a.name)}</span>`).join("")}</div>`
+    : `<span class="muted">—</span>`;
+  const keywords = p.keywords.length
+    ? `<div class="chips">${p.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join("")}</div>`
+    : `<span class="muted">—</span>`;
+  const site = p.website_url
+    ? `<a href="${esc(p.website_url)}" target="_blank" rel="noopener noreferrer">${esc(p.website_url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</a>`
+    : `<span class="muted">—</span>`;
+  return `<article class="card project clickable" data-href="#projects/${esc(p.id)}">
+    <div class="top"><div><h2>${esc(p.name)}</h2><div class="biz">${esc(p.business_name)}</div></div>
+      <span class="chips"><span class="tag">${esc(p.country)}</span><span class="tag">${esc(p.language)}</span></span></div>
+    <dl class="kv">
+      <dt>Address</dt><dd>${p.address ? esc(p.address) : `<span class="muted">—</span>`}</dd>
+      <dt>Phone</dt><dd>${p.phone ? esc(p.phone) : `<span class="muted">—</span>`}</dd>
+      <dt>Website</dt><dd>${site}</dd>
+      <dt>Google</dt><dd>${p.place_id
+        ? `<a href="https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(p.place_id)}" target="_blank" rel="noopener noreferrer">✓ Business profile linked ↗</a>`
+        : `<span class="muted">Not linked</span>`}</dd>
+      <dt>Areas</dt><dd>${areas}</dd>
+      <dt>Keywords</dt><dd>${keywords}</dd>
+    </dl>
+    <div class="foot"><span title="${esc(fullTime(p.created_at))}">Created ${esc(timeAgo(p.created_at))}</span>
+      <span>${p.match_status === "manual_review_required" ? `<span class="pill warn">Needs your choice</span>` : confidencePill(p.match_confidence)}
+        <span class="mono" title="${esc(p.id)}">${esc(shortId(p.id))}</span></span></div>
+  </article>`;
+}
+
+async function renderProjects() {
+  const nav = navCount;
+  view.innerHTML = `<div class="page-head"><div><h1>Projects</h1><p class="muted">Businesses being audited.</p></div>
+    <button class="btn primary" data-action="new-project">+ New project</button></div>
+    <div class="skeleton" style="height:220px"></div>`;
+  const projects = await api("/v1/projects?limit=200");
+  if (nav !== navCount) return;
+  const body = projects.length
+    ? `<div class="project-grid">${projects.map(projectCard).join("")}</div>`
+    : `<div class="card empty">
+        <svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+        <h3>No projects yet</h3><p>Create a project for the business you want to audit.</p>
+        <button class="btn primary" data-action="new-project">+ New project</button></div>`;
+  view.innerHTML = `<div class="page-head"><div><h1>Projects</h1>
+      <p class="muted">${fmtNum(projects.length)} business${projects.length === 1 ? "" : "es"} being audited.</p></div>
+    <button class="btn primary" data-action="new-project">+ New project</button></div>${body}`;
+}
+
+
+/* ---------- Project page (audit results) ---------- */
+
+const SOCIAL_LABEL = {
+  facebook: "Facebook", instagram: "Instagram", linkedin: "LinkedIn", x: "X (Twitter)", youtube: "YouTube",
+  tiktok: "TikTok", pinterest: "Pinterest", houzz: "Houzz", yelp: "Yelp",
+};
+const OFFERING_SOURCE = {
+  gbp_category: "Google categories",
+  website_schema: "Website · structured data",
+  website_service_page: "Website · service pages",
+  website_heading: "Website · services page headings",
+  website_sitemap: "Website · sitemap",
+  review_topic: "Reviews · services mentioned",
+};
+
+function stars(rating) {
+  if (rating == null) return "";
+  const full = Math.round(rating);
+  return `<span class="stars" aria-label="${esc(rating)} out of 5">${"★".repeat(full)}<span>${"★".repeat(5 - full)}</span></span>`;
+}
+
+const dash = `<span class="muted">—</span>`;
+const orDash = (v) => (v == null || v === "" ? dash : esc(v));
+const chipList = (items) => (items?.length ? `<div class="chips">${items.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div>` : dash);
+const extLink = (url, label) => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;
+
+function auditProgress(job) {
+  if (!job) return "";
+  const active = ACTIVE.has(job.status);
+  const steps = (job.steps || []).map((s) => `
+    <li class="${esc(s.status)}"><span class="node">${s.status === "running" ? `<span class="spinner"></span>` : STEP_ICON[s.status] ?? ""}</span>
+      <span>${esc(stepLabel(s.name))}${s.result?.note ? ` <span class="muted">· ${esc(s.result.note)}</span>` : ""}${s.error ? ` <span class="${s.status === "skipped" ? "muted" : "err"}">· ${esc(s.error)}</span>` : ""}</span></li>`).join("");
+  return `<div class="card card-body audit-bar ${active ? "active" : ""}">
+    <div class="audit-head"><b>${active ? "Audit running…" : "Last audit"}</b> ${badge(job.status)}
+      <span class="muted">${esc(timeAgo(job.created_at))}</span><a href="#jobs/${esc(job.id)}" class="muted">details</a></div>
+    ${steps ? `<ul class="mini-steps">${steps}</ul>` : `<p class="muted" style="margin:6px 0 0">Waiting for the worker…</p>`}</div>`;
+}
+
+
+const SENTIMENT_CLASS = { positive: "ok", neutral: "idle", negative: "bad" };
+const THEME_LABEL = {
+  service_quality: "Service quality", staff: "Staff / customer service", price_value: "Price / value",
+  speed: "Speed", cleanliness: "Cleanliness", communication: "Communication", specific_service: "Specific service",
+};
+
+function reviewInsights(sum) {
+  if (!sum) return "";
+  const d = sum.sentiment_distribution;
+  const total = (d.positive + d.neutral + d.negative) || 1;
+  const seg = (k) => d[k] ? `<span class="seg ${SENTIMENT_CLASS[k]}" style="width:${(d[k] / total) * 100}%" title="${esc(d[k])} ${k}"></span>` : "";
+  const chips = (items, cls) => items?.length
+    ? `<div class="chips">${items.map((t) => `<span class="tag-chip ${cls}">${esc(t)}</span>`).join("")}</div>` : `<span class="muted small">None</span>`;
+  const themes = Object.entries(sum.themes || {}).map(([k, t]) => `
+      <tr><td>${esc(t.label)}</td><td class="num ok-text">${t.positive || ""}</td><td class="num">${t.neutral || ""}</td><td class="num bad-text">${t.negative || ""}</td></tr>`).join("");
+  return `<div class="insights">
+    <div class="insight-row">
+      <div><div class="label">Sentiment</div>
+        <div class="sent-bar">${seg("positive")}${seg("neutral")}${seg("negative")}</div>
+        <div class="small muted">${d.positive} positive · ${d.neutral} neutral · ${d.negative} negative</div></div>
+      <div><div class="label">Customers praise</div>${chips(sum.top_positive_topics, "ok")}</div>
+      <div><div class="label">Customers complain about</div>${chips(sum.top_negative_topics, "bad")}</div>
+    </div>
+    ${themes ? `<details class="themes"><summary>Themes</summary><div class="table-wrap"><table>
+      <thead><tr><th>Theme</th><th class="num">Positive</th><th class="num">Neutral</th><th class="num">Negative</th></tr></thead>
+      <tbody>${themes}</tbody></table></div></details>` : ""}
+    ${sum.note ? `<p class="muted small" style="margin:0">${esc(sum.note)}</p>` : ""}
+  </div>`;
+}
+
+async function startReviewAnalysis(projectId, button) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Analysing…`;
+  }
+  try {
+    await api(`/v1/projects/${encodeURIComponent(projectId)}/reviews/analyze`, { method: "POST" });
+    toast("Re-analysing reviews (no API credits used)");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+  route();
+}
+
+function reviewCard(r) {
+  const initial = esc((r.author_name || "?").trim().charAt(0).toUpperCase());
+  const author = r.author_url ? `<a href="${esc(r.author_url)}" target="_blank" rel="noopener noreferrer">${esc(r.author_name || "Google user")}</a>` : esc(r.author_name || "Google user");
+  const when = r.relative_publish_time || (r.published_at ? timeAgo(r.published_at) : "");
+  return `<article class="review">
+    <div class="review-head"><span class="avatar">${initial}</span>
+      <div><div class="author">${author}</div><div class="muted small">${stars(r.rating)} ${esc(when)}</div></div>
+      <span class="pos">${r.sentiment ? `<span class="pill ${SENTIMENT_CLASS[r.sentiment]}">${esc(r.sentiment)}</span> ` : ""}#${esc(r.position ?? "")}</span></div>
+    ${r.review_text ? `<p class="review-text">${esc(r.review_text)}</p>` : `<p class="muted small">Rating only, no text.</p>`}
+    ${r.tags?.length ? `<div class="chips tag-chips">${r.tags.map((t) => `<span class="tag-chip ${SENTIMENT_CLASS[t.sentiment] || ""}" title="${esc(THEME_LABEL[t.theme] || t.theme)}${t.sentence ? ` — “${esc(t.sentence)}”` : ""}">${t.theme === "specific_service" ? "🛠 " : ""}${esc(t.tag)}</span>`).join("")}</div>` : ""}
+    ${r.owner_reply ? `<div class="owner-reply"><b>Reply from the owner</b><p>${esc(r.owner_reply)}</p></div>` : ""}
+    ${r.review_url ? `<div class="small">${extLink(r.review_url, "View on Google")}</div>` : ""}
+  </article>`;
+}
+
+
+const NAP_SOURCE = {
+  schema: "structured data", microdata: "microdata", tel_link: "phone link", address_tag: "address block",
+  page_text: "page text", og_site_name: "site name tag", page_title: "page title",
+};
+const STATUS_ICON = { match: ["ok", "✓", "Match"], mismatch: ["bad", "✗", "Different"], missing: ["idle", "–", "Missing on one side"] };
+
+function pinDistance(meters, addressMatches = false) {
+  if (meters == null) return `<span class="muted">Not available — needs coordinates for both the map pin and the website address</span>`;
+  if (meters > 1000 && addressMatches) {
+    const far = meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+    return `<span class="pill warn">${esc(far)}</span> <span class="muted small">The addresses match, so the website's coordinates are likely wrong — fix its structured data</span>`;
+  }
+  const level = meters <= 150 ? "ok" : meters <= 1000 ? "warn" : "bad";
+  const text = meters < 10 ? `${meters.toFixed(1)} m` : meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+  const hint = { ok: "between the Google pin and the website location — same place", warn: "between the Google pin and the website location — check the map", bad: "between the Google pin and the website location — pin may be in the wrong place" }[level];
+  return `<span class="pill ${level}">${esc(text)}</span> <span class="muted small">${esc(hint)}</span>`;
+}
+
+function websiteCard(site, check, location) {
+  if (!site) return "";
+  const src = (key) => {
+    const s = site.nap_sources?.[key];
+    if (!s) return "";
+    const page = s.url ? s.url.replace(/^https?:\/\/[^/]+/, "") || "/" : "";
+    return `<span class="muted small"> · ${esc(NAP_SOURCE[s.source] || s.source)}${page ? ` on ${esc(page)}` : ""}</span>`;
+  };
+  const GEO_SOURCE = { schema: "from the website's own data", nominatim: "address looked up on OpenStreetMap", google_geocoding: "address looked up with Google Geocoding" };
+  const coords = site.latitude != null
+    ? `${site.latitude.toFixed(6)}, ${site.longitude.toFixed(6)} <span class="muted small">· ${esc(GEO_SOURCE[site.geocode_source] || site.geocode_source || "")}</span>`
+    : `<span class="muted">Not available</span>`;
+  const pinCoords = location?.latitude != null
+    ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} <span class="muted small">· Google Maps pin</span>`
+    : `<span class="muted">Not available</span>`;
+  const table = check
+    ? `<div class="table-wrap nap-table"><table><thead><tr><th></th><th>Google profile</th><th>Website</th><th></th></tr></thead><tbody>
+        ${["name", "phone", "address"].map((k) => {
+          const r = check[k];
+          const [cls, icon, label] = STATUS_ICON[r.status] || STATUS_ICON.missing;
+          return `<tr><td><b>${esc(humanize(k))}</b></td><td>${orDash(r.google)}</td><td>${orDash(r.website)}</td>
+            <td><span class="pill ${cls}" title="${esc(r.detail || "")}">${icon} ${esc(label)}</span></td></tr>`;
+        }).join("")}</tbody></table></div>`
+    : "";
+  const notes = site.notes?.length ? `<ul class="notes">${site.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
+  return `<div class="card"><div class="card-head"><div><h2>${check ? "Website vs Google" : "Website"}</h2>
+      <p class="muted">What the business's own site says${check ? ", compared with its Google profile" : ""}.</p></div>
+      ${extLink(site.url, "Open site")}</div>
+    <div class="card-body stack" style="gap:14px">
+      ${table || `<dl class="kv wide">
+        <dt>Name</dt><dd>${orDash(site.business_name)}${src("name")}</dd>
+        <dt>Phone</dt><dd>${orDash(site.phone)}${src("phone")}</dd>
+        <dt>Address</dt><dd>${orDash(site.address)}${src("address")}</dd></dl>`}
+      <dl class="kv wide">
+        ${check ? `<dt>Found on</dt><dd>${["name", "phone", "address"].map((k) => site.nap_sources?.[k] ? `${esc(humanize(k))}${src(k)}` : "").filter(Boolean).join("<br>") || dash}</dd>` : ""}
+        ${location ? `<dt>Google pin</dt><dd>${pinCoords}</dd>` : ""}
+        <dt>Website location</dt><dd>${coords}</dd>
+        ${location ? `<dt>Distance</dt><dd>${pinDistance(location.pin_vs_website_address_distance_meters, check?.address?.status === "match")}</dd>` : ""}
+        <dt>Pages read</dt><dd>${esc(site.pages_fetched?.length ?? 0)}${site.rendered_with_browser ? ` <span class="pill info">rendered with browser</span>` : ""}</dd>
+      </dl>${notes}
+      <p class="muted small" style="margin:0">Read ${esc(timeAgo(site.collected_at))}</p></div></div>`;
+}
+
+
+const MATCH_STATUS = {
+  auto_selected: "Found & verified automatically",
+  manually_selected: "Chosen by you",
+  manual_review_required: "Needs your choice",
+  not_found: "Not found on Google",
+};
+
+function confidencePill(value) {
+  if (value == null) return "";
+  const level = value >= 0.85 ? "ok" : value >= 0.6 ? "warn" : "bad";
+  return `<span class="pill ${level}" title="Match confidence">${Math.round(value * 100)}% match</span>`;
+}
+
+function reasonList(good, bad) {
+  const items = [
+    ...(good || []).map((r) => `<li class="ok"><span>✓</span>${esc(r)}</li>`),
+    ...(bad || []).map((r) => `<li class="bad"><span>✗</span>${esc(r)}</li>`),
+  ];
+  return items.length ? `<ul class="reasons">${items.join("")}</ul>` : "";
+}
+
+function matchCard(project) {
+  if (!project.match_status || project.match_status === "manual_review_required") return "";
+  const note = project.match_confidence != null && project.match_confidence < 0.85
+    ? `<p class="small warn-text">Low confidence — check this is the right Google listing. Differences found are listed below.</p>` : "";
+  return `<div class="card"><div class="card-head"><div><h2>Google listing match</h2>
+      <p class="muted">${esc(MATCH_STATUS[project.match_status] || humanize(project.match_status))}${project.match_confidence == null ? " · verified after the audit" : ""}</p></div>
+      ${confidencePill(project.match_confidence)}</div>
+    <div class="card-body">${note}${reasonList(project.match_reasons, project.mismatch_reasons) || `<p class="muted">Run the audit to verify this listing against the website.</p>`}</div></div>`;
+}
+
+function chooseCard(project, discovery) {
+  const cands = discovery?.candidates || [];
+  const why = ((discovery?.mismatch_reasons || []).slice(-1)[0] || "The best match is not certain enough to pick automatically").replace(/\.?$/, ".");
+  return `<div class="card choose"><div class="card-head"><div><h2>Choose the right business</h2>
+      <p class="muted">${esc(why)} Pick the listing that is this business.</p></div></div>
+    <div class="card-body candidates-list">${cands.map((c) => `
+      <div class="cand">
+        <div class="cand-main">
+          <div class="cand-title"><b>${esc(c.business_name)}</b>${c.primary_category ? ` <span class="muted small">· ${esc(c.primary_category)}</span>` : ""} ${confidencePill(c.match_confidence)}</div>
+          <div class="muted small">${esc(c.address || "")}${c.phone ? ` · ${esc(c.phone)}` : ""}${c.website_url ? ` · ${esc(c.website_url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, ""))}` : ""}</div>
+          ${reasonList(c.match_reasons, c.mismatch_reasons)}
+        </div>
+        <div class="cand-actions">
+          ${c.maps_url ? extLink(c.maps_url, "View on Maps") : ""}
+          <button class="btn primary sm" data-action="select" data-project="${esc(project.id)}" data-place="${esc(c.place_id)}">This is the business</button>
+        </div>
+      </div>`).join("") || `<p class="muted">No candidates.</p>`}
+      <p class="muted small" style="margin:6px 0 0">None of these? Check the business name and address of the project, then click “Find on Google” again.</p>
+    </div></div>`;
+}
+
+async function startDiscovery(projectId, button) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Starting…`;
+  }
+  try {
+    await api(`/v1/projects/${encodeURIComponent(projectId)}/discover-business`, {
+      method: "POST",
+      body: JSON.stringify({ then_audit: true }),
+    });
+    toast("Finding the business on Google");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+  if (location.hash === `#projects/${projectId}`) route();
+  else location.hash = `#projects/${projectId}`;
+}
+
+async function selectCandidate(projectId, placeId, button) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Saving…`;
+  }
+  try {
+    await api(`/v1/projects/${encodeURIComponent(projectId)}/discover-business/select`, {
+      method: "POST",
+      body: JSON.stringify({ place_id: placeId, then_audit: true }),
+    });
+    toast("Business selected — audit started");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+  route();
+}
+
+async function startWebsiteOnly(projectId, button) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Starting…`;
+  }
+  try {
+    await api(`/v1/projects/${encodeURIComponent(projectId)}/website-discovery`, { method: "POST" });
+    toast("Reading the website");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+  route();
+}
+
+async function startAudit(projectId, button, options = null) {
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>Starting…`;
+  }
+  try {
+    await api(`/v1/projects/${encodeURIComponent(projectId)}/gbp-audit`, {
+      method: "POST",
+      ...(options ? { body: JSON.stringify(options) } : {}),
+    });
+    toast(options?.top10_reviews ? "Audit started — fetching the top 10 reviews (2 SerpApi credits)" : "Audit started");
+  } catch (err) {
+    toast(err.message, "bad");
+  }
+  if (location.hash === `#projects/${projectId}`) route();
+  else location.hash = `#projects/${projectId}`;
+}
+
+async function renderProject(id, silent = false) {
+  const nav = navCount;
+  if (!silent) view.innerHTML = `<a class="crumb" href="#projects">← Projects</a><div class="skeleton" style="height:320px"></div>`;
+  let data;
+  try {
+    data = await api(`/v1/projects/${encodeURIComponent(id)}/profile`);
+  } catch (err) {
+    if (nav !== navCount) return;
+    view.innerHTML = `<a class="crumb" href="#projects">← Projects</a><div class="card empty"><h3>Project not found</h3><p>${esc(err.message)}</p></div>`;
+    return;
+  }
+  if (nav !== navCount) return;
+
+  const { project, profile: g, last_audit: job, reviews, offerings, social_profiles: social, website: site, nap_check: check, location, review_summary: reviewSum } = data;
+  const running = job && ACTIVE.has(job.status);
+  const title = g?.business_name || project.business_name;
+  const linked = Boolean(project.place_id);
+  const auditBtn = linked
+    ? `<button class="btn ${g ? "" : "primary"}" data-action="audit" data-project="${esc(project.id)}" ${running ? "disabled" : ""}>
+        ${running ? `<span class="spinner"></span>Running…` : g ? "Re-run audit" : "Run audit"}</button>`
+    : `<button class="btn primary" data-action="discover" data-project="${esc(project.id)}" ${running ? "disabled" : ""}>
+        ${running ? `<span class="spinner"></span>Running…` : "Find on Google & audit"}</button>`;
+  let discovery = null;
+  if (project.match_status === "manual_review_required" && !running) {
+    try {
+      discovery = await api(`/v1/projects/${encodeURIComponent(project.id)}/discover-business`);
+    } catch {}
+    if (nav !== navCount) return;
+  }
+  const websiteBtn = project.website_url && !running
+    ? `<button class="btn ghost" data-action="website" data-project="${esc(project.id)}" title="Only read the website: no Google calls">Read website only</button>` : "";
+
+  const socialList = Object.keys(social || {}).length
+    ? `<ul class="links">${Object.entries(social).map(([k, url]) => `<li><span class="platform">${esc(SOCIAL_LABEL[k] || k)}</span>${extLink(url, url.replace(/^https?:\/\/(www\.)?/, ""))}</li>`).join("")}</ul>`
+    : `<p class="muted">None found on the website.</p>`;
+  const groups = {};
+  for (const o of offerings) (groups[o.source] ||= []).push(o);
+  const offeringHtml = offerings.length
+    ? Object.entries(groups).map(([src, items]) => `<div class="offer-group"><div class="label">${esc(OFFERING_SOURCE[src] || humanize(src))}</div>
+        <div class="chips">${items.map((o) => o.source_url && o.source_url.startsWith("http")
+          ? `<a class="chip" href="${esc(o.source_url)}" target="_blank" rel="noopener noreferrer" title="Found on ${esc(o.source_url)}">${esc(o.name)}</a>`
+          : `<span class="chip">${esc(o.name)}</span>`).join("")}</div></div>`).join("")
+    : `<p class="muted">No offerings found yet.</p>`;
+  const sideCards = `<div class="card"><div class="card-head"><h2>Social profiles</h2></div><div class="card-body">${socialList}</div></div>
+        <div class="card"><div class="card-head"><h2>Offerings</h2></div><div class="card-body">${offeringHtml}</div></div>`;
+
+  let body;
+  if (!g && site) {
+    body = `<div class="detail-grid"><div class="stack">${websiteCard(site, null, null)}
+      <div class="card card-body muted">No Google profile yet. Click “${linked ? "Run audit" : "Find on Google & audit"}” to find it and compare it with the website.</div></div>
+      <div class="stack">${sideCards}</div></div>`;
+  } else if (!g) {
+    body = running || discovery ? "" : `<div class="card empty">
+      <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+      <h3>No audit yet</h3><p>Collects the Google profile, the top reviews, and social links + offerings from the website.</p>
+      <button class="btn primary" data-action="${linked ? "audit" : "discover"}" data-project="${esc(project.id)}">${linked ? "Run audit" : "Find on Google & audit"}</button></div>`;
+  } else {
+    const hours = g.opening_hours?.weekday_descriptions?.length
+      ? `<ul class="hours">${g.opening_hours.weekday_descriptions.map((d) => {
+          const [day, ...rest] = d.split(": ");
+          return `<li><span>${esc(day)}</span><span>${esc(rest.join(": "))}</span></li>`;
+        }).join("")}</ul>`
+      : `<p class="muted">Not listed on Google.</p>`;
+    const fromSerp = reviews[0]?.source === "serpapi";
+    const reviewNote = !reviews.length ? "No reviews returned."
+      : fromSerp ? `Top ${reviews.length} by relevance, with owner replies, from Google Maps via SerpApi.`
+      : `${reviews.length} most relevant reviews from Google (free; Google returns at most 5).`;
+    const top10Btn = !fromSerp && !running
+      ? `<button class="btn ghost sm" data-action="top10" data-project="${esc(project.id)}" title="Re-runs the audit and fetches the top 10 reviews with owner replies via SerpApi">Load top 10 · 2 SerpApi credits</button>` : "";
+    const openNow = g.opening_hours?.open_now;
+
+    body = `<div class="detail-grid">
+      <div class="stack">
+        <div class="card"><div class="card-head"><h2>Business profile</h2>
+          ${g.maps_url ? extLink(g.maps_url, "Open in Google Maps") : ""}</div>
+          <div class="card-body"><dl class="kv wide">
+            <dt>Address</dt><dd>${orDash(g.formatted_address)}</dd>
+            <dt>Phone</dt><dd>${g.phone_number ? `<a href="tel:${esc(g.phone_number.replace(/\s/g, ""))}">${esc(g.phone_number)}</a>` : dash}</dd>
+            <dt>Website</dt><dd>${g.website_url ? extLink(g.website_url, g.website_url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")) : dash}</dd>
+            <dt>Category</dt><dd>${orDash(g.primary_category)}</dd>
+            <dt>Other types</dt><dd>${chipList(g.secondary_categories)}</dd>
+            <dt>Status</dt><dd>${g.business_status ? esc(humanize(g.business_status.toLowerCase())) : dash}</dd>
+            <dt>Map pin</dt><dd>${g.map_pin_status === "present" ? "✓ Present" : orDash(g.map_pin_status)}</dd>
+            <dt>Plus code</dt><dd>${orDash(g.plus_code)}</dd>
+            <dt>Photos</dt><dd>${g.photos_count_available != null ? `${esc(g.photos_count_available)} returned by the API (max 10)` : dash}</dd>
+            <dt>Description</dt><dd>${orDash(g.editorial_summary)}</dd>
+            <dt>Service options</dt><dd>${chipList(g.service_options)}</dd>
+            <dt>Accessibility</dt><dd>${chipList(g.accessibility_attributes)}</dd>
+            <dt>Place ID</dt><dd class="mono">${esc(g.place_id)}</dd>
+          </dl><p class="muted small" style="margin:12px 0 0">Checked ${esc(timeAgo(g.last_checked_at))} · source: Google Places API</p></div></div>
+
+        ${websiteCard(site, check, location)}
+
+        <div class="card"><div class="card-head"><div><h2>Top reviews</h2><p class="muted">${esc(reviewNote)}</p></div>
+          <div class="review-actions">${top10Btn}<span class="muted small">Reviews from Google</span></div></div>
+          <div class="card-body">${reviewInsights(reviewSum)}
+            ${reviews.length && !running ? `<div class="reanalyse"><button class="btn ghost sm" data-action="reanalyse" data-project="${esc(project.id)}" title="Runs locally on the stored reviews">Re-analyse · free</button></div>` : ""}
+            <div class="reviews">${reviews.map(reviewCard).join("") || `<p class="muted">—</p>`}</div></div></div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="card-head"><h2>Opening hours</h2>
+          ${openNow == null ? "" : `<span class="badge ${openNow ? "completed" : "failed"}">${openNow ? "Open now" : "Closed now"}</span>`}</div>
+          <div class="card-body">${hours}</div></div>
+        ${sideCards}
+      </div>
+    </div>`;
+  }
+
+  view.innerHTML = `
+    <a class="crumb" href="#projects">← Projects</a>
+    <div class="page-head"><div>
+      <h1>${esc(title)}</h1>
+      <p class="muted head-meta">${g?.primary_category ? `<span>${esc(g.primary_category)}</span>` : ""}
+        ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
+        <span>${esc(project.name)}</span></p></div>
+      <div class="toolbar">${websiteBtn}${auditBtn}</div></div>
+    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}${body}</div>`;
+
+  if (running) schedule(() => renderProject(id, true), 2000);
+}
+
+/* ---------- Jobs ---------- */
+
+async function renderJobs(params) {
+  const nav = navCount;
+  const status = params.get("status") || "";
+  const qs = new URLSearchParams({ limit: "200" });
+  if (status) qs.set("status", status);
+  const [jobs, projects] = await Promise.all([api(`/v1/jobs?${qs}`), api("/v1/projects?limit=200")]);
+  if (nav !== navCount) return;
+  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const options = ["", "queued", "running", "completed", "partial_success", "failed"]
+    .map((s) => `<option value="${s}" ${s === status ? "selected" : ""}>${s ? humanize(s) : "All statuses"}</option>`).join("");
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Jobs</h1><p class="muted">Background work. Each job runs its steps in order and records the result of each.</p></div>
+      <div class="toolbar"><select class="inline" id="statusFilter" aria-label="Filter by status">${options}</select>
+        <button class="btn primary" data-action="diagnostic">Run diagnostic</button></div></div>
+    <div class="card" style="padding-top:6px">${jobsTable(jobs, projectMap)}</div>`;
+
+  $("#statusFilter").addEventListener("change", (e) => {
+    location.hash = e.target.value ? `#jobs?status=${e.target.value}` : "#jobs";
+  });
+  if (jobs.some((j) => ACTIVE.has(j.status))) schedule(() => renderJobs(params), 2500);
+}
+
+function resultBlock(result) {
+  const entries = Object.entries(result || {});
+  if (!entries.length) return "";
+  const simple = entries.every(([, v]) => v === null || typeof v !== "object");
+  if (!simple) return `<div class="result"><pre class="json">${esc(JSON.stringify(result, null, 2))}</pre></div>`;
+  return `<div class="result"><dl class="kv">${entries.map(([k, v]) =>
+    `<dt>${esc(humanize(k))}</dt><dd>${v === null ? `<span class="muted">—</span>` : esc(typeof v === "number" ? fmtNum(v) : v)}</dd>`).join("")}</dl></div>`;
+}
+
+async function renderJob(id) {
+  const nav = navCount;
+  let job;
+  try {
+    job = await api(`/v1/jobs/${encodeURIComponent(id)}`);
+  } catch (err) {
+    view.innerHTML = `<a class="crumb" href="#jobs">← Jobs</a><div class="card empty"><h3>Job not found</h3><p>${esc(err.message)}</p></div>`;
+    return;
+  }
+  if (nav !== navCount) return;
+  const steps = job.steps || [];
+  const timeline = steps.length
+    ? `<ol class="timeline">${steps.map((s) => `
+        <li class="${esc(s.status)}"><div class="node">${s.status === "running" ? `<span class="spinner"></span>` : STEP_ICON[s.status] ?? ""}</div>
+          <div><div class="step-head"><h3>${esc(stepLabel(s.name))}</h3>${badge(s.status)}
+            <span class="tag">${s.required ? "required" : "optional"}</span>
+            <span class="dur">${s.duration_ms != null ? `${fmtNum(s.duration_ms)} ms` : ""}</span></div>
+            ${s.error ? `<div class="result error">${esc(s.error)}</div>` : ""}
+            ${resultBlock(s.result)}</div></li>`).join("")}</ol>`
+    : `<p class="muted">Waiting for a worker to pick up this job…</p>`;
+
+  const summary = {
+    completed: "All steps succeeded.",
+    partial_success: "Required steps succeeded, but at least one optional step failed.",
+    failed: "A required step failed, so later steps were not run.",
+    running: "Running — this page updates automatically.",
+    queued: "Waiting in the queue — this page updates automatically.",
+  }[job.status] || "";
+
+  view.innerHTML = `
+    <a class="crumb" href="#jobs">← Jobs</a>
+    <div class="page-head"><div><h1>${esc(humanize(job.job_type))} job ${badge(job.status)}</h1>
+      <p class="muted">${esc(summary)}</p></div>
+      ${job.job_type === "diagnostic" && !ACTIVE.has(job.status) ? `<button class="btn" data-action="diagnostic">Run again</button>` : ""}</div>
+    <div class="stack">
+      <div class="card card-body"><div class="meta-row">
+        <span>ID <b class="mono">${esc(job.id)}</b></span>
+        <span>Created <b title="${esc(fullTime(job.created_at))}">${esc(timeAgo(job.created_at))}</b></span>
+        <span>Duration <b>${esc(duration(job.started_at, job.finished_at))}</b></span>
+        ${job.project_id ? `<span>Project <b class="mono">${esc(shortId(job.project_id))}</b></span>` : ""}
+      </div>${job.error ? `<div class="result error" style="margin-top:12px">${esc(job.error)}</div>` : ""}</div>
+      <div class="card"><div class="card-head"><h2>Steps</h2><span class="muted">${steps.filter((s) => s.status === "succeeded").length} / ${steps.length} succeeded</span></div>
+        <div class="card-body">${timeline}</div></div>
+      <div class="card card-body"><details><summary>Raw job data</summary><pre class="json" style="margin-top:10px">${esc(JSON.stringify(job, null, 2))}</pre></details></div>
+    </div>`;
+
+  if (ACTIVE.has(job.status)) schedule(() => renderJob(id), 1200);
+}
+
+/* ---------- New project dialog ---------- */
+
+const dialog = $("#projectDialog");
+const form = $("#projectForm");
+
+function addAreaRow(area = {}) {
+  const row = document.createElement("div");
+  row.className = "area-row";
+  row.innerHTML = `
+    <input data-f="name" placeholder="City, e.g. Manchester, UK" value="${esc(area.name || "")}">
+    <input data-f="latitude" type="number" step="any" min="-90" max="90" placeholder="Latitude" value="${esc(area.latitude ?? "")}">
+    <input data-f="longitude" type="number" step="any" min="-180" max="180" placeholder="Longitude" value="${esc(area.longitude ?? "")}">
+    <button type="button" class="icon-btn" aria-label="Remove area">✕</button>`;
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  $("#areas").append(row);
+}
+
+function openProjectDialog() {
+  form.reset();
+  form.elements.place_id.value = ""; // reset() does not clear hidden inputs
+  delete form.elements.name.dataset.auto;
+  $("#quickInput").value = "";
+  $("#quickResult").innerHTML = "";
+  $("#areas").innerHTML = "";
+  addAreaRow();
+  $("#formErrors").hidden = true;
+  dialog.showModal();
+  $("#quickInput").focus();
+}
+
+/* Quick fill: one pasted line -> all fields (Google Places, or a local parser as fallback). */
+
+let lookupResult = null;
+
+function setField(name, value) {
+  const input = form.elements[name];
+  if (value == null || value === "") return;
+  input.value = value;
+  input.classList.add("autofilled");
+  setTimeout(() => input.classList.remove("autofilled"), 1600);
+}
+
+function applyCandidate(c, source) {
+  const f = form.elements;
+  // Only replace the project name if the user has not typed their own.
+  if (!f.name.value.trim() || f.name.dataset.auto === "1") {
+    setField("name", `${c.business_name} audit`);
+    f.name.dataset.auto = "1";
+  }
+  setField("business_name", c.business_name);
+  setField("address", c.address);
+  setField("phone", c.phone);
+  setField("website_url", c.website_url);
+  setField("country", c.country);
+  f.place_id.value = source === "google_places" && c.place_id ? c.place_id : "";
+  const area = c.service_area || c.city;
+  if (area) {
+    $("#areas").innerHTML = "";
+    addAreaRow({ name: area, latitude: c.latitude, longitude: c.longitude });
+  }
+}
+
+function renderQuickResult(result, selected = 0) {
+  const c = result.candidates[selected];
+  const google = result.source === "google_places";
+  const banner = google
+    ? `<div class="match"><div class="ico">✓</div><div>
+        <div>Found on Google: <b>${esc(c.business_name)}</b>${c.primary_category ? ` · ${esc(c.primary_category)}` : ""}</div>
+        <div class="links">${c.maps_url ? `<a href="${esc(c.maps_url)}" target="_blank" rel="noopener noreferrer">Open in Google Maps ↗</a>` : ""}
+          <span>Fields filled below. Check them, then create.</span>${result.cached ? "<span>(cached, no quota used)</span>" : ""}</div></div></div>`
+    : `<div class="match warn"><div class="ico">!</div><div>
+        <div>${esc(result.warning || "Filled without Google.")}</div>
+        <div class="links"><span>Not linked to a Google profile. Fields were split from your text.</span></div></div></div>`;
+  const others = google && result.candidates.length > 1
+    ? `<div class="candidates"><p>Not the right business? Pick another match:</p>${result.candidates.map((x, i) => `
+        <button type="button" class="candidate ${i === selected ? "selected" : ""}" data-candidate="${i}">
+          <span><b>${esc(x.business_name)}</b>${x.primary_category ? ` · ${esc(x.primary_category)}` : ""}</span>
+          <small>${esc(x.address || "")}</small></button>`).join("")}</div>`
+    : "";
+  $("#quickResult").innerHTML = banner + others;
+}
+
+async function quickLookup() {
+  const query = $("#quickInput").value.trim();
+  if (query.length < 3) {
+    $("#quickInput").focus();
+    return;
+  }
+  const btn = $("#quickBtn");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>Looking up…`;
+  try {
+    lookupResult = await api("/v1/lookup/business", { method: "POST", body: JSON.stringify({ query }) });
+    applyCandidate(lookupResult.candidates[0], lookupResult.source);
+    renderQuickResult(lookupResult, 0);
+    $("#formErrors").hidden = true;
+  } catch (err) {
+    $("#quickResult").innerHTML = `<div class="match warn"><div class="ico">!</div><div>${esc(err.message)}</div></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Look up";
+  }
+}
+
+$("#quickBtn").addEventListener("click", quickLookup);
+$("#quickInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault(); // don't submit the project form
+    quickLookup();
+  }
+});
+$("#quickResult").addEventListener("click", (e) => {
+  const pick = e.target.closest("[data-candidate]");
+  if (!pick || !lookupResult) return;
+  const i = Number(pick.dataset.candidate);
+  applyCandidate(lookupResult.candidates[i], lookupResult.source);
+  renderQuickResult(lookupResult, i);
+});
+form.elements.name.addEventListener("input", () => delete form.elements.name.dataset.auto);
+
+function formPayload() {
+  const f = form.elements;
+  const val = (name) => f[name].value.trim() || null;
+  const areas = [...document.querySelectorAll("#areas .area-row")]
+    .map((row) => {
+      const get = (k) => row.querySelector(`[data-f="${k}"]`).value.trim();
+      const num = (k) => (get(k) === "" ? null : Number(get(k)));
+      return { name: get("name"), latitude: num("latitude"), longitude: num("longitude") };
+    })
+    .filter((a) => a.name);
+  return {
+    name: val("name"),
+    business_name: val("business_name"),
+    address: val("address"),
+    phone: val("phone"),
+    website_url: val("website_url"),
+    country: (val("country") || "").toUpperCase(),
+    language: val("language") || "en",
+    service_areas: areas,
+    keywords: f.keywords.value.split(/[\n,]/).map((k) => k.trim()).filter(Boolean),
+    place_id: val("place_id"),
+  };
+}
+
+function showFormErrors(detail) {
+  const box = $("#formErrors");
+  const items = Array.isArray(detail)
+    ? detail.map((d) => (typeof d === "string" ? d : `${humanize((d.loc || []).filter((x) => x !== "body").join(" › "))}: ${d.msg}`))
+    : [typeof detail === "string" ? detail : "Something went wrong."];
+  box.innerHTML = `<b>Please fix the following:</b><ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
+  box.hidden = false;
+  box.scrollIntoView({ block: "nearest" });
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = formPayload();
+  const missing = [];
+  if (!payload.name) missing.push("Project name is required");
+  if (!payload.business_name) missing.push("Business name is required");
+  if (payload.country.length !== 2) missing.push("Country must be a 2-letter code, e.g. GB or US");
+  if (missing.length) return showFormErrors(missing);
+
+  const btn = $("#saveProject");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>Creating…`;
+  try {
+    const project = await api("/v1/projects", { method: "POST", body: JSON.stringify(payload) });
+    dialog.close();
+    toast(`Project “${project.name}” created — starting the audit`);
+    if (project.place_id) await startAudit(project.id);
+    else await startDiscovery(project.id);
+  } catch (err) {
+    showFormErrors(err.detail ?? err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Create project";
+  }
+});
+
+$("#addArea").addEventListener("click", () => addAreaRow());
+dialog.addEventListener("click", (e) => {
+  if (e.target === dialog || e.target.closest("[data-close]")) dialog.close();
+});
+
+/* ---------- routing ---------- */
+
+document.addEventListener("click", (e) => {
+  const action = e.target.closest("[data-action]");
+  if (action?.dataset.action === "diagnostic") return runDiagnostic(action);
+  if (action?.dataset.action === "new-project") return openProjectDialog();
+  if (action?.dataset.action === "audit") return startAudit(action.dataset.project, action);
+  if (action?.dataset.action === "top10") return startAudit(action.dataset.project, action, { top10_reviews: true });
+  if (action?.dataset.action === "website") return startWebsiteOnly(action.dataset.project, action);
+  if (action?.dataset.action === "discover") return startDiscovery(action.dataset.project, action);
+  if (action?.dataset.action === "reanalyse") return startReviewAnalysis(action.dataset.project, action);
+  if (action?.dataset.action === "select") return selectCandidate(action.dataset.project, action.dataset.place, action);
+  const row = e.target.closest("[data-href]");
+  if (row && !e.target.closest("a, button")) location.hash = row.dataset.href;
+});
+
+async function route() {
+  clearTimeout(pollTimer);
+  navCount += 1;
+  const [path, query] = (location.hash.slice(1) || "overview").split("?");
+  const [section, id] = path.split("/");
+  const params = new URLSearchParams(query || "");
+
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === section));
+  try {
+    if (section === "projects" && id) await renderProject(id);
+    else if (section === "projects") await renderProjects();
+    else if (section === "jobs" && id) await renderJob(id);
+    else if (section === "jobs") await renderJobs(params);
+    else await renderOverview();
+  } catch (err) {
+    view.innerHTML = `<div class="card empty"><h3>Could not load this page</h3><p>${esc(err.message)}</p>
+      <button class="btn" onclick="location.reload()">Retry</button></div>`;
+  }
+  document.title = `${humanize(section || "overview")} · Local SEO Audit`;
+}
+
+window.addEventListener("hashchange", route);
+refreshHealth();
+setInterval(refreshHealth, 15000);
+route();

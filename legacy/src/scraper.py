@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 import time
 import re
 import requests
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -74,44 +74,6 @@ def extract_social_profiles(website_url):
     except Exception as e:
         print(f"Error fetching social profiles from {website_url}: {e}")
         
-    return profiles
-
-
-def fallback_social_profiles(name, address):
-    """Fallback to searching DuckDuckGo for social profiles if not on website."""
-    profiles = {}
-    # Use city or short address for search
-    location = address.split(',')[1].strip() if address != "N/A" and ',' in address else address
-    if location == "N/A":
-        location = ""
-        
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    url = "https://html.duckduckgo.com/html/"
-    
-    for platform in ['facebook', 'instagram', 'linkedin', 'twitter']:
-        query = f'"{name}" {location} site:{platform}.com'
-        data = {'q': query}
-        try:
-            response = requests.post(url, data=data, headers=headers, timeout=5)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            for a in soup.find_all('a', class_='result__url', href=True):
-                href = a['href']
-                if 'uddg=' in href:
-                    href = unquote(href.split('uddg=')[1].split('&')[0])
-                href_lower = href.lower()
-                
-                # Exclude directories, public listings, posts, and generic pages
-                invalid_terms = ['share', 'post', 'dir/', '/public/', '/search/']
-                if platform in href_lower and not any(term in href_lower for term in invalid_terms):
-                    # For linkedin, ensure it's a company or in profile
-                    if platform == 'linkedin' and '/company/' not in href_lower and '/in/' not in href_lower:
-                        continue
-                    profiles[platform] = href
-                    break
-            time.sleep(1) # Be nice to DDG
-        except Exception as e:
-            print(f"Fallback search error for {platform}: {e}")
-            
     return profiles
 
 
@@ -493,11 +455,8 @@ def parse_business_page(driver):
     # ── Step 3: Extract profile data (topics, photo count) ──────────────────
     profile = scrape_profile(soup)
 
-    # ── Step 4: Extract social media profiles from website or fallback ──────
+    # ── Step 4: Extract social media profiles from the business website ─────
     social_profiles = extract_social_profiles(website)
-    if not social_profiles:
-        print("No social profiles on website, using DDG fallback...")
-        social_profiles = fallback_social_profiles(name, address)
 
     # ── Step 5: Extract products ──────────────────────────────────────────────
     products = []

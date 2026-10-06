@@ -1,22 +1,24 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# Install system dependencies including chromium and chromedriver
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
+RUN useradd --create-home appuser
 WORKDIR /app
+RUN chown appuser:appuser /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-dev.txt ./
+ARG INSTALL_DEV=true
+RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
 
-# Copy application files
-COPY . .
+# Headless Chromium for websites that only render with JavaScript (Phase 2 fallback).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ARG INSTALL_BROWSER=true
+RUN if [ "$INSTALL_BROWSER" = "true" ]; then       python -m playwright install --with-deps chromium && chmod -R a+rx /ms-playwright;     fi
 
-# Expose port
-EXPOSE 5000
+COPY --chown=appuser:appuser . .
+USER appuser
 
-# Run the Flask app
-CMD ["python", "src/app.py"]
+EXPOSE 8000
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

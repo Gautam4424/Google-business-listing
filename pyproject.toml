@@ -1,0 +1,22 @@
+[project]
+name = "local-seo-audit"
+version = "0.1.0"
+description = "Local SEO Audit API: GBP audit, local rank tracking and competitor gap analysis"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["legacy", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]  # FastAPI Depends() in defaults
+
+[tool.ruff.lint.per-file-ignores]
+# Pattern data (review-topic lexicon): long regex lines are clearer unwrapped.
+"app/services/review_nlp.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

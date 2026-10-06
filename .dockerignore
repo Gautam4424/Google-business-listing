@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+legacy
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.venv
+venv
+*.md

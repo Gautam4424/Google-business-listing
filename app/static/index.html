@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local SEO Audit</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%230f766e' d='M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#overview">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+        <span>Local SEO <b>Audit</b></span>
+      </a>
+      <nav class="nav">
+        <a href="#overview" data-nav="overview">
+          <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6v-9h-6v9zm0-16v5h6V4h-6z"/></svg>Overview
+        </a>
+        <a href="#projects" data-nav="projects">
+          <svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>Projects
+        </a>
+        <a href="#jobs" data-nav="jobs">
+          <svg viewBox="0 0 24 24"><path d="M3 5h2v2H3V5zm4 0h14v2H7V5zM3 11h2v2H3v-2zm4 0h14v2H7v-2zm-4 6h2v2H3v-2zm4 0h14v2H7v-2z"/></svg>Jobs
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="health" id="health"><span class="dot"></span><span>Checking…</span></div>
+        <a class="doclink" href="/docs" target="_blank" rel="noopener">API docs ↗</a>
+      </div>
+    </aside>
+
+    <main class="main" id="view" tabindex="-1"></main>
+  </div>
+
+  <dialog id="projectDialog" class="dialog">
+    <form id="projectForm" novalidate>
+      <header class="dialog-head">
+        <div>
+          <h2>New project</h2>
+          <p class="muted">The business to audit. Paste one line to fill everything, then check and create.</p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+      </header>
+      <div class="dialog-body">
+        <section class="quick">
+          <label for="quickInput"><span>Quick fill <span class="hint">paste the business name and address in one line, e.g. copied from Google</span></span></label>
+          <div class="quick-row">
+            <input id="quickInput" autocomplete="off" placeholder="Astaneh Construction 3080 Yonge St Ste 6060, Toronto, ON M4N 1S1, Canada">
+            <button type="button" class="btn primary" id="quickBtn">Look up</button>
+          </div>
+          <div id="quickResult"></div>
+        </section>
+        <div class="divider"><span>or fill in the fields yourself</span></div>
+        <div class="form-errors" id="formErrors" hidden></div>
+        <input type="hidden" name="place_id">
+        <div class="grid-2">
+          <label>Project name<input name="name" required maxlength="200" placeholder="Acme Plumbing – Q4 audit"></label>
+          <label>Business name<input name="business_name" required maxlength="300" placeholder="Acme Plumbing Ltd"></label>
+        </div>
+        <label>Address<input name="address" placeholder="1 High St, Manchester M1 1AA"></label>
+        <div class="grid-2">
+          <label>Phone<input name="phone" maxlength="50" placeholder="+44 161 000 0000"></label>
+          <label>Website<input name="website_url" type="url" placeholder="https://example.com"></label>
+        </div>
+        <div class="grid-2">
+          <label><span>Country <span class="hint">2-letter code</span></span><input name="country" required maxlength="2" placeholder="GB" class="upper"></label>
+          <label>Language<input name="language" value="en" maxlength="10"></label>
+        </div>
+        <fieldset>
+          <legend>Service areas <span class="hint">cities you serve — coordinates optional</span></legend>
+          <div id="areas"></div>
+          <button type="button" class="btn ghost sm" id="addArea">+ Add area</button>
+        </fieldset>
+        <label><span>Keywords <span class="hint">one per line or comma-separated</span></span>
+          <textarea name="keywords" rows="3" placeholder="emergency plumber manchester&#10;boiler repair manchester"></textarea>
+        </label>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary" id="saveProject">Create project</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
