@@ -29,7 +29,12 @@ def discover_website(
     nap = result.nap
     notes = list(result.notes) + nap.issues
     lat, lng, geo_source = nap.latitude, nap.longitude, ("schema" if nap.latitude is not None else None)
-    if lat is None and nap.address:
+    if nap.multi_location:
+        notes.append(
+            f"The website lists several locations ({len(nap.all_addresses)} addresses, "
+            f"{len(nap.all_phones_e164)} phones): the Google listing is compared against all of them"
+        )
+    if lat is None and nap.address and not nap.multi_location:
         geo, geo_notes = geocode(db, nap.address, project.country)
         notes += geo_notes
         if geo:
@@ -47,7 +52,10 @@ def discover_website(
         latitude=lat,
         longitude=lng,
         geocode_source=geo_source,
-        nap_sources=nap.sources or None,
+        nap_sources={
+            **nap.sources,
+            "all": {"addresses": nap.all_addresses, "phones_e164": nap.all_phones_e164},
+        },
         social_profiles=result.social_profiles or None,
         pages_fetched=result.pages_fetched,
         rendered_with_browser=result.rendered_with_browser,

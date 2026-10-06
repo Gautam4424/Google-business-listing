@@ -199,7 +199,7 @@ def test_area_coordinates_from_places_then_pin(db, monkeypatch):
 # ---------- endpoints ----------
 
 
-def test_endpoints(client, db):
+def test_endpoints(client, db, monkeypatch):
     project = client.post(
         "/v1/projects",
         json={"name": "Acme", "business_name": "Acme Plumbing", "country": "AU",
@@ -231,6 +231,10 @@ def test_endpoints(client, db):
         r = client.patch(f"/v1/projects/{pid}/keywords/{on[0]['id']}", json={"active": True})
         assert r.status_code == 422 and "limit" in r.json()["detail"]
 
+    monkeypatch.setattr(kw, "resolve_area", lambda db, name, country: None)  # Google finds nothing
+    monkeypatch.setattr(kw, "get_places_client", lambda: object())
+    bad = client.put(f"/v1/projects/{pid}/service-areas", json=[AREA, {"name": "etttuyjb"}])
+    assert bad.status_code == 422 and "Could not find 'etttuyjb'" in bad.json()["detail"]
     areas = client.put(f"/v1/projects/{pid}/service-areas", json=[AREA]).json()
     assert areas[0]["latitude"] == -33.867
     assert client.put(f"/v1/projects/{pid}/service-areas", json=[]).status_code == 422

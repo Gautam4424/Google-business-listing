@@ -38,6 +38,14 @@ class Nap:
     longitude: float | None = None
     sources: dict = field(default_factory=dict)  # field -> {"source", "url", "confidence"}
     issues: list[str] = field(default_factory=list)  # problems in the site's own data (an SEO finding)
+    # Every distinct address / phone found on the site (chains list many locations).
+    all_addresses: list[str] = field(default_factory=list)
+    all_phones_e164: list[str] = field(default_factory=list)
+
+    @property
+    def multi_location(self) -> bool:
+        # Different postcodes = different places (two phones alone can be office + mobile).
+        return len({pc for a in self.all_addresses if (pc := postcode(a))}) > 1
 
 
 def normalize_phone(value: str, region: str | None) -> tuple[str, str] | None:
@@ -218,6 +226,17 @@ def merge_nap(pages: list[dict[str, list[Found]]], region: str | None) -> Nap:
         nap.latitude, nap.longitude = lat, lng
         note("coordinates", f)
         break
+
+    seen_addr: set[str] = set()
+    for f in sorted(pooled.get("address", []), key=lambda f: -f[2]):
+        key = postcode(f[0]) or street_key(f[0])
+        if key not in seen_addr and len(nap.all_addresses) < 50:
+            seen_addr.add(key)
+            nap.all_addresses.append(f[0])
+    for f in sorted(pooled.get("phone", []), key=lambda f: -f[2]):
+        normalized = normalize_phone(f[0], region)
+        if normalized and normalized[0] not in nap.all_phones_e164 and len(nap.all_phones_e164) < 50:
+            nap.all_phones_e164.append(normalized[0])
     return nap
 
 
@@ -285,19 +304,35 @@ def compare_nap(
         row("name", gbp_name, w.name, "missing")
 
     g_phone = normalize_phone(gbp_phone, region) if gbp_phone else None
-    if g_phone and w.phone_e164:
-        row("phone", gbp_phone, w.phone, "match" if g_phone[0] == w.phone_e164 else "mismatch")
+    phones = [p for p in [w.phone_e164, *w.all_phones_e164] if p]
+    if g_phone and phones:
+        if g_phone[0] == w.phone_e164:
+            row("phone", gbp_phone, w.phone, "match")
+        elif g_phone[0] in phones:
+            n = len(set(phones))
+            row("phone", gbp_phone, gbp_phone, "match", f"one of {n} phone numbers listed on the website")
+        else:
+            row("phone", gbp_phone, w.phone, "mismatch")
     else:
         row("phone", gbp_phone, w.phone, "missing")
 
-    if gbp_address and w.address:
-        g_pc, w_pc = postcode(gbp_address), postcode(w.address)
-        # token_set: the suite number may be split into its own address segment
-        street_score = fuzz.token_set_ratio(street_key(gbp_address), street_key(w.address))
-        # Both must agree when both postcodes are known; otherwise judge by the street alone.
-        same = (g_pc == w_pc and street_score >= 80) if (g_pc and w_pc) else street_score >= 90
-        detail = f"postcode {g_pc or '?'} vs {w_pc or '?'}, street similarity {street_score:.0f}%"
-        row("address", gbp_address, w.address, "match" if same else "mismatch", detail)
+    addresses = list(dict.fromkeys(a for a in [w.address, *w.all_addresses] if a))
+    if gbp_address and addresses:
+        results = [(a, *address_agreement(gbp_address, a)) for a in addresses]
+        best = next((r for r in results if r[1]), results[0])
+        detail = best[2]
+        if best[0] != w.address and best[1]:
+            detail += f" (one of {len(addresses)} locations listed on the website)"
+        row("address", gbp_address, best[0], "match" if best[1] else "mismatch", detail)
     else:
         row("address", gbp_address, w.address, "missing")
     return out
+
+
+def address_agreement(a: str, b: str) -> tuple[bool, str]:
+    a_pc, b_pc = postcode(a), postcode(b)
+    # token_set: the suite number may be split into its own address segment
+    street_score = fuzz.token_set_ratio(street_key(a), street_key(b))
+    # Both must agree when both postcodes are known; otherwise judge by the street alone.
+    same = (a_pc == b_pc and street_score >= 80) if (a_pc and b_pc) else street_score >= 90
+    return same, f"postcode {a_pc or '?'} vs {b_pc or '?'}, street similarity {street_score:.0f}%"

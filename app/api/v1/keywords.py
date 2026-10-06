@@ -158,9 +158,20 @@ def set_service_areas(project_id: uuid.UUID, body: list[ServiceArea], db: Sessio
     project = _project(db, project_id)
     if not body:
         raise HTTPException(422, "At least one service area is required")
-    project.service_areas = [a.model_dump() for a in body]
+    known = {a["name"]: a for a in project.service_areas or []}
+    areas = []
+    for area in body:
+        a = area.model_dump()
+        if a["latitude"] is None and a["name"] in known:
+            a = {**known[a["name"]], **{k: v for k, v in a.items() if v is not None}}
+        if a["latitude"] is None and kw.get_places_client() is not None:
+            found = kw.resolve_area(db, a["name"], project.country)
+            if not found:
+                raise HTTPException(422, f"Could not find '{a['name']}' on Google Maps: check the spelling")
+            a["latitude"], a["longitude"] = found[0], found[1]
+        areas.append(a)
+    project.service_areas = areas
     db.commit()
-    kw.ensure_area_coordinates(db, project)
     return project.service_areas
 
 

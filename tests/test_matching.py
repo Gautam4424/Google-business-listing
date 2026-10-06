@@ -92,6 +92,22 @@ def test_street_without_number_is_weak_evidence():
     assert matching.score_candidate(numbered, cand).signals["address"]["score"] == 0.2  # 220 vs 6355
 
 
+def test_chain_website_reference_matches_any_location():
+    ref = matching.Reference(
+        name="Acme Build",
+        address="99 Queen St E, Toronto, ON M5C 2M6",
+        phone_e164="+14165559999",
+        domain="acme.example.com",
+        region="CA",
+        other_addresses=["1 King St W, Toronto, ON M5H 1A1"],
+        other_phones=["+14165550100"],
+    )
+    s = matching.score_candidate(ref, RIGHT)
+    assert "Phone matches" in s.match_reasons
+    assert any("one of 2 locations" in r for r in s.match_reasons)
+    assert s.match_confidence >= 0.95
+
+
 def test_decide_auto_selects_clear_winner():
     d = matching.decide(REF, [WRONG, RIGHT])
     assert d.status == "auto_selected" and d.place_id == "ChIJright"

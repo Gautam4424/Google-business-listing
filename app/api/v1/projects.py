@@ -153,7 +153,15 @@ def get_profile(project_id: uuid.UUID, db: Session = Depends(get_db)) -> Profile
             out.review_summary = review_summary(db, project)
 
     if profile and site:
-        nap = Nap(name=site.business_name, phone=site.phone, phone_e164=site.phone_e164, address=site.address)
+        lists = (site.nap_sources or {}).get("all") or {}
+        nap = Nap(
+            name=site.business_name,
+            phone=site.phone,
+            phone_e164=site.phone_e164,
+            address=site.address,
+            all_addresses=lists.get("addresses") or [],
+            all_phones_e164=lists.get("phones_e164") or [],
+        )
         out.nap_check = compare_nap(
             nap, profile.business_name, profile.phone_number, profile.formatted_address, project.country
         )

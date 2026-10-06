@@ -33,6 +33,8 @@ class Reference:
     longitude: float | None = None
     region: str | None = None
     sources: dict = field(default_factory=dict)
+    other_addresses: list[str] = field(default_factory=list)  # chains: every location on the website
+    other_phones: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -78,6 +80,11 @@ def build_reference(project, website=None) -> Reference:
         "phone", website.phone_e164 if website else None, input_phone[0] if input_phone else None
     )
     ref.domain = pick("domain", domain_of(website.url) if website else None, domain_of(project.website_url))
+    lists = (
+        ((website.nap_sources or {}).get("all") or {}) if website and hasattr(website, "nap_sources") else {}
+    )
+    ref.other_addresses = [a for a in lists.get("addresses") or [] if a != ref.address]
+    ref.other_phones = [p for p in lists.get("phones_e164") or [] if p != ref.phone_e164]
     if website and website.latitude is not None:
         ref.latitude, ref.longitude = website.latitude, website.longitude
         ref.sources["coordinates"] = "website"
@@ -135,12 +142,15 @@ def score_candidate(ref: Reference, cand) -> Score:
             add("name", s, f"Business name differs ({s:.0%} similar)", False)
 
     if ref.address and cand.address:
-        s, detail, positive = _address_score(ref.address, cand.address)
+        options = [ref.address, *ref.other_addresses]
+        s, detail, positive = max((_address_score(a, cand.address) for a in options), key=lambda r: r[0])
+        if positive and len(options) > 1:
+            detail += f" (one of {len(options)} locations on the website)"
         add("address", s, detail, positive)
 
     cand_phone = normalize_phone(cand.phone, ref.region) if cand.phone else None
     if ref.phone_e164 and cand_phone:
-        if cand_phone[0] == ref.phone_e164:
+        if cand_phone[0] == ref.phone_e164 or cand_phone[0] in ref.other_phones:
             add("phone", 1.0, "Phone matches", True)
         else:
             add("phone", 0.0, f"Phone differs ({cand_phone[1]})", False)

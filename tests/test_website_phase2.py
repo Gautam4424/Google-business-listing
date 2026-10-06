@@ -103,6 +103,29 @@ def test_address_needs_same_postcode_and_street():
     assert row["status"] == "match"
 
 
+def test_chain_website_matches_any_listed_location():
+    # Joe's Pizza: the site's /locations page lists Boston first; the Google listing is the NYC branch.
+    site = nap.Nap(
+        name="Joe's Pizza",
+        phone="+1 617-936-4464",
+        phone_e164="+16179364464",
+        address="1359 Boylston Street, Boston, MA 02215",
+        all_addresses=["1359 Boylston Street, Boston, MA 02215", "1435 Broadway, New York, NY 10018"],
+        all_phones_e164=["+16179364464", "+16465594878"],
+    )
+    assert site.multi_location
+    result = nap.compare_nap(
+        site, "Joe's Pizza Broadway", "+1 646-559-4878", "1435 Broadway, New York, NY 10018, USA", "US"
+    )
+    assert result["phone"]["status"] == "match" and "one of 2 phone numbers" in result["phone"]["detail"]
+    assert result["address"]["status"] == "match" and "one of 2 locations" in result["address"]["detail"]
+    assert result["address"]["website"] == "1435 Broadway, New York, NY 10018"
+    two_phones = nap.Nap(
+        address="1 King St W, Toronto ON M5H 1A1", all_phones_e164=["+14165550100", "+14165550101"]
+    )
+    assert not two_phones.multi_location  # office + mobile is not a chain
+
+
 def test_haversine():
     # CN Tower -> Union Station is roughly 500 m
     assert 400 < nap.haversine_m(43.6426, -79.3871, 43.6453, -79.3806) < 650
