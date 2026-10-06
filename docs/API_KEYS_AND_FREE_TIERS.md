@@ -30,7 +30,7 @@ You (or a client) ──▶ API (FastAPI) ──▶ Job queue (Redis) ──▶ 
 4. Every piece of data is saved in **PostgreSQL**, together with *where it came from and when*, because the brief requires provenance.
 5. You poll `GET /v1/jobs/{id}` and, when it finishes, download the report.
 
-Everything runs in **Docker on your PC**, so hosting costs nothing.
+Everything runs in **Docker on one Ubuntu server**; no paid hosting services are needed.
 
 ---
 
@@ -59,7 +59,7 @@ Everything runs in **Docker on your PC**, so hosting costs nothing.
 
 | Free resource | Used for |
 |---|---|
-| Docker Desktop | Runs everything locally |
+| Docker Engine + Compose plugin (Ubuntu) | Runs everything |
 | PostgreSQL 16 (Docker image) | Database |
 | Redis (Docker image) | Job queue |
 | Python libs: FastAPI, Pydantic, SQLAlchemy, Alembic, Celery, pytest, ruff | API, DB, jobs, tests |
@@ -262,10 +262,13 @@ Gaps are listed with careful wording ("review whether this category is accurate 
    ```
    GOOGLE_API_KEY=AIza...
    ```
-10. **Quick test** (PowerShell):
-    ```powershell
-    $h = @{ "X-Goog-Api-Key" = $env:GOOGLE_API_KEY; "X-Goog-FieldMask" = "places.id,places.displayName,places.formattedAddress" }
-    Invoke-RestMethod -Method Post -Uri "https://places.googleapis.com/v1/places:searchText" -Headers $h -ContentType "application/json" -Body '{"textQuery":"Joe''s Pizza 1435 Broadway New York"}'
+10. **Quick test** (on the server):
+    ```bash
+    curl -s -X POST https://places.googleapis.com/v1/places:searchText \
+      -H "Content-Type: application/json" \
+      -H "X-Goog-Api-Key: $GOOGLE_API_KEY" \
+      -H "X-Goog-FieldMask: places.id,places.displayName,places.formattedAddress" \
+      -d '{"textQuery":"Joe Pizza 1435 Broadway New York"}'
     ```
 
 Official docs:
@@ -286,9 +289,9 @@ Official docs:
    ```
    SERPAPI_KEY=...
    ```
-6. **Quick test** (uses 1 of your 250 searches):
-   ```powershell
-   Invoke-RestMethod "https://serpapi.com/search.json?engine=google_local&q=plumber&location=Manchester,England,United Kingdom&gl=uk&hl=en&api_key=$env:SERPAPI_KEY"
+6. **Quick test** (free: checks the key and shows searches left):
+   ```bash
+   curl -s "https://serpapi.com/account.json?api_key=$SERPAPI_KEY"
    ```
 7. Track usage at **https://serpapi.com/dashboard**. The app's quota guard will also stop at 240.
 

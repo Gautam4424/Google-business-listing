@@ -18,7 +18,9 @@ services:
   api:
     <<: *app
     ports:
-      - "8000:8000"
+      # Default: only reachable from the server itself (no login yet). Use an SSH tunnel or a
+      # reverse proxy with a password; set APP_BIND=0.0.0.0 only behind a firewall/VPN.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s

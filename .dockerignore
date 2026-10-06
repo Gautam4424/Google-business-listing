@@ -3,9 +3,6 @@
 .env.*
 !.env.example
 docs
-scripts
-*.bat
-*.command
 .github
 **/__pycache__
 .pytest_cache

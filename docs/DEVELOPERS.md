@@ -1,6 +1,6 @@
 # Local SEO Audit API — developer guide
 
-For installing and running the app without technical knowledge, see the main [README](../README.md).
+For deploying on an Ubuntu server with Docker, see the main [README](../README.md).
 
 Audits a local business's Google Business Profile (GBP), tracks Local Pack / Local Finder rankings for service + location keywords, and compares the business against competitors. It uses only official or licensed data sources (Google Places API (New), Business Profile API, SerpApi) and runs within their free tiers.
 
@@ -10,12 +10,10 @@ Audits a local business's Google Business Profile (GBP), tracks Local Pack / Loc
 
 ## Quick start
 
-Non-technical users: double-click `start.bat` (Windows) or `start.command` (Mac); see the main README. Manually:
-
-Requires Docker Desktop.
+Requires Docker Engine with the Compose plugin (see the README for Ubuntu installation).
 
 ```bash
-cp .env.example .env        # then fill in GOOGLE_API_KEY, SERPAPI_KEY, POSTGRES_PASSWORD
+cp .env.example .env        # then fill in GOOGLE_API_KEY, SERPAPI_KEY, POSTGRES_PASSWORD (openssl rand -hex 24)
 docker compose up -d --build
 ```
 
