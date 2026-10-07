@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import get_settings
+from app.core.config import base_settings
 
 
 def _make_engine(url: str):
@@ -13,7 +13,7 @@ def _make_engine(url: str):
     return create_engine(url, **kwargs)
 
 
-engine = _make_engine(get_settings().database_url)
+engine = _make_engine(base_settings().database_url)  # infrastructure: never overridden from the app
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

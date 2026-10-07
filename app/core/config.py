@@ -1,6 +1,7 @@
+import time
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
 
     # Free-tier guard. 0 = no cap for that window.
     quota_places_details_monthly: int = 900
-    quota_places_details_daily: int = 30
+    quota_places_details_daily: int = 100
     quota_places_textsearch_monthly: int = 4500
     quota_places_textsearch_daily: int = 150
     # Text Search that also returns phone/website is billed as the Enterprise SKU (~1,000 free/month).
@@ -60,5 +61,68 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def base_settings() -> Settings:
+    """The one Settings object, loaded from the environment / .env (see get_settings for overrides)."""
     return Settings()
+
+
+# Values changed on the Settings page are stored in the `app_settings` table and override .env.
+# Every process (api, worker) re-reads them at most every OVERRIDE_REFRESH_SECONDS, so a change
+# applies within seconds without a restart. Removing an override restores the .env value.
+OVERRIDE_REFRESH_SECONDS = 5.0
+_last_refresh = float("-inf")
+_env_values: dict[str, object] = {}  # .env value of every attribute currently overridden
+
+
+def get_settings() -> Settings:
+    if time.monotonic() - _last_refresh >= OVERRIDE_REFRESH_SECONDS:
+        refresh_overrides()
+    return base_settings()
+
+
+def refresh_overrides() -> None:
+    """Apply the app_settings table to the Settings object (never raises: no table yet = no overrides)."""
+    global _last_refresh
+    _last_refresh = time.monotonic()
+    try:
+        from sqlalchemy import text
+
+        from app.core.db import engine
+
+        with engine.connect() as conn:
+            rows = dict(conn.execute(text("SELECT key, value FROM app_settings")).all())
+    except Exception:
+        return  # database not ready / table not created yet / busy: keep the current values
+    apply_overrides(rows)
+
+
+def apply_overrides(rows: dict[str, str]) -> None:
+    s = base_settings()
+    wanted = {}
+    for key, raw in rows.items():
+        attr = key.lower()
+        field = Settings.model_fields.get(attr)
+        if field is None:
+            continue
+        try:
+            wanted[attr] = TypeAdapter(field.annotation).validate_python(raw)
+        except Exception:
+            continue  # an invalid stored value never breaks the app; the .env value stays
+    for attr in list(_env_values):
+        if attr not in wanted:  # override removed: back to the .env value
+            setattr(s, attr, _env_values.pop(attr))
+    for attr, value in wanted.items():
+        _env_values.setdefault(attr, getattr(s, attr))
+        setattr(s, attr, value)
+
+
+def env_value(attr: str) -> object:
+    """The .env (or default) value of a setting, even while it is overridden."""
+    return _env_values.get(attr, getattr(base_settings(), attr))
+
+
+def reset_overrides() -> None:
+    """Drop every override in this process (tests)."""
+    global _last_refresh
+    apply_overrides({})
+    _last_refresh = float("-inf")

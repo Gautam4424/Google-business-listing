@@ -40,6 +40,27 @@ class DataSource(IdMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class AppSetting(Base):
+    """A setting changed on the Settings page. Overrides the .env value (key = the .env name)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SettingChange(IdMixin, Base):
+    """History of changes made on the Settings page (API keys are stored masked here)."""
+
+    __tablename__ = "setting_changes"
+
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)  # None = reset to the .env value
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class ApiUsage(IdMixin, Base):
     """Calls per provider SKU per day, used by the free-tier quota guard."""
 

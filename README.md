@@ -234,7 +234,16 @@ curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json
 
 Only one job runs per project at a time: a second click (or a colleague starting the same project) gets *"already running … wait for it to finish"*, so credits are never spent twice.
 
-**Settings** (left menu) shows, read-only: whether the keys are set (masked), today's and this month's usage for every limit with its `.env` name, when limits reset, the worker status, and the last clean-up. To change a value, edit `.env` and run `docker compose up -d`.
+**Settings** (left menu) shows whether the keys are set (masked), today's and this month's usage for every limit, when limits reset, the worker status and the last clean-up.
+
+**You can also change settings there:**
+- **What you can change:** API keys, free-tier limits, ranking mode, keyword cap, competitor and clean-up options, and `DEBUG`.
+- **When changes apply:** within a few seconds, with no restart. Exceptions: `DEBUG` and the clean-up hour apply after `docker compose restart api worker`.
+- **Where changes are saved:** in the app's database. They override `.env`, and **Reset** goes back to the `.env` value.
+- **Keys are write-only:** they're never shown again after saving.
+- **Above the free tier:** raising a monthly limit above it needs an "I accept possible charges" tick.
+- **History:** every change is listed under **Recent changes**.
+- **Still `.env` only:** the database, ports and passwords.
 
 API reference: **http://localhost:8000/docs** (through your tunnel).
 

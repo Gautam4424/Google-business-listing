@@ -203,11 +203,11 @@ flowchart LR
 | `app/services/` | The logic: website reading, matching, reviews, keywords, rankings, competitors, gaps, report, quota, clean-up |
 | `app/providers/` | Talks to Google Places and SerpApi (with one automatic retry) |
 | `app/workers/` | Job runner, job definitions, worker schedule |
-| `app/models/` | 18 database tables |
+| `app/models/` | 20 database tables |
 | `app/templates/` | The report page design |
 | `app/static/` | The web app pages |
 | `migrations/` | Database changes (applied automatically at start) |
-| `tests/` | 138 automatic tests |
+| `tests/` | 145 automatic tests |
 | `docs/` | This document, roadmap, developer guide, API keys guide, product summary |
 
 ### 6.3 How a job works
@@ -671,7 +671,7 @@ Steps 1–2 (red) are **required**: if they fail, the audit stops. Steps 3–13 
 | 7 | **Small logs, `DEBUG=false`** | Logs capped at 30 MB per container; keys never logged |
 | 8 | **Nightly 30-day clean-up** | Google's rule (details in section 26) |
 | 9 | **Delete project** | 🗑 button with a red confirmation box |
-| 10 | **Settings page** | Read-only: masked keys, all limits and usage, reset times, worker status, last clean-up |
+| 10 | **Settings page** | Masked keys, all limits and usage, reset times, worker status, last clean-up. **Settings can be changed here** (see section 23) |
 | 11 | **End-to-end tests** | Whole flow tested automatically; tests can't reach real APIs |
 | 12 | **Documentation** | README, `docs/PRODUCT.md`, this document |
 
@@ -715,7 +715,7 @@ The UI works on phones, has light and dark modes, and keeps your scroll position
 
 ## 20. Data: what is stored and where
 
-All data is in PostgreSQL (Docker volume `local-seo-audit_pgdata`). The 18 tables:
+All data is in PostgreSQL (Docker volume `local-seo-audit_pgdata`). The 20 tables:
 
 ```mermaid
 erDiagram
@@ -753,6 +753,7 @@ erDiagram
 | `competitors` / `competitor_metrics` | Competitors / their snapshots |
 | `gap_recommendations` | The gap list |
 | `audit_jobs` | Every job with its steps |
+| `app_settings` / `setting_changes` | Settings changed in the app (override `.env`) / their history (keys masked) |
 | `data_sources` | Raw provider answers (proof + cache), with an expiry date |
 | `api_usage` | Paid calls counted per day |
 
@@ -832,7 +833,29 @@ flowchart TB
 
 ## 23. All settings (`.env`)
 
-Change a value in `.env` on the server, then run `docker compose up -d`. The **Settings** page shows the current values (keys masked).
+There are two ways to change a setting.
+
+**1. In the app (easiest):** open **Settings → Change settings**, edit a value, and click **Save**.
+
+```mermaid
+flowchart LR
+    U["You change a value<br/>on the Settings page"] --> V{"Valid?<br/>(range, type)"}
+    V -- no --> E["Error message,<br/>nothing saved"]
+    V -- "above free tier" --> C{"'I accept possible<br/>charges' ticked?"}
+    C -- no --> E
+    C -- yes --> S
+    V -- yes --> S["Saved in the database<br/>(+ change history)"]
+    S --> A["Web app and worker<br/>use it within ~5 seconds"]
+    S -. "Reset" .-> R["Back to the .env value"]
+```
+
+- **What can be changed:** API keys, free-tier limits, ranking mode, keyword cap, free re-check window, Maps area, top-10 reviews, competitor options, website browser, OpenStreetMap contact, retries, stuck-job time, clean-up days and hour, and `DEBUG`.
+- **When it applies:** no restart is needed, except for `DEBUG` and `CLEANUP_HOUR_UTC` (`docker compose restart api worker`).
+- **Keys are write-only:** they're never shown again, only masked (e.g. `AIza…Y4`).
+- **Above the free tier:** a monthly limit above it needs the "I accept possible charges" tick.
+- **`.env` stays the default:** a value changed in the app shows "changed in app", and **Reset** goes back to `.env`.
+
+**2. In `.env` on the server:** needed for the database, ports and passwords. Edit the file, then run `docker compose up -d`.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -898,7 +921,7 @@ ssh -L 8000:127.0.0.1:8000 youruser@YOUR_SERVER_IP
 
 | Item | Detail |
 |---|---|
-| Automatic tests | **138**, run in the app's Docker image; every Google/SerpApi/website call is simulated; real network calls are blocked |
+| Automatic tests | **145**, run in the app's Docker image; every Google/SerpApi/website call is simulated; real network calls are blocked |
 | Main areas tested | Free-tier guard, website reading, matching, profile fields, review analysis, keywords, rankings and scoring, competitors and gaps, full audit, report formats, no double runs, retries, limit messages, delete, settings, clean-up, end-to-end flow |
 | Lint / format | `ruff` (clean) |
 | CI | GitHub Actions runs tests and lint on each push |

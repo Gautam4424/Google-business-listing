@@ -18,6 +18,8 @@ ignore = ["B008"]  # FastAPI Depends() in defaults
 "app/services/review_nlp.py" = ["E501"]
 # Recommendation wording: long sentences are clearer unwrapped.
 "app/services/gaps.py" = ["E501"]
+# Settings table (labels and help texts shown on the Settings page).
+"app/services/app_settings.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

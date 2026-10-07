@@ -32,9 +32,13 @@ def no_real_network(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fresh_db():
+    from app.core.config import reset_overrides
+
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    reset_overrides()  # settings changed in the app by an earlier test never leak into this one
     yield
+    reset_overrides()
 
 
 @pytest.fixture

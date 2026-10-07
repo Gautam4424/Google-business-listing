@@ -204,7 +204,7 @@ function usageMeters(usage) {
 async function renderSettings() {
   const nav = navCount;
   view.innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div><div class="skeleton" style="height:320px"></div>`;
-  const s = await api("/v1/settings");
+  const [s, ed] = await Promise.all([api("/v1/settings"), api("/v1/settings/editable")]);
   if (nav !== navCount) return;
   const yes = (v) => (v ? "On" : "Off");
   const key = (name, v) => `<tr><td class="mono">${esc(name)}</td><td>${v ? `<span class="ok-text">✓ set</span> <span class="mono muted">${esc(v)}</span>` : `<span class="bad-text">not set</span>`}</td></tr>`;
@@ -212,12 +212,11 @@ async function renderSettings() {
       ${l.blocked ? `<div class="bad-text small">${esc(l.blocked)}</div>` : ""}</td>
     <td class="num">${l.daily_limit ? `${fmtNum(l.day_count)} / ${fmtNum(l.daily_limit)}` : `${fmtNum(l.day_count)} <span class="muted">(no cap)</span>`}</td>
     <td class="num">${fmtNum(l.month_count)} / ${fmtNum(l.monthly_limit)}</td><td class="num"><b>${fmtNum(l.remaining)}</b></td></tr>`).join("");
-  const features = Object.entries(s.features).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td>${typeof v === "boolean" ? yes(v) : esc(v)}</td></tr>`).join("");
   const lc = s.retention.last_cleanup;
   const worker = s.worker_online === true ? `<span class="ok-text">● online</span>` : s.worker_online === false ? `<span class="bad-text">● not responding</span>` : `<span class="bad-text">● job queue unreachable</span>`;
   view.innerHTML = `
     <div class="page-head"><div><h1>Settings</h1>
-      <p class="muted">Read-only. To change a value, edit <span class="mono">.env</span> on the server and run <span class="mono">docker compose up -d</span>.</p></div></div>
+      <p class="muted">Change settings below: they apply within a few seconds, no restart needed. Your <span class="mono">.env</span> values stay as the defaults (<b>Reset</b> goes back to them).</p></div></div>
     <div class="settings-grid">
       <div class="card"><div class="card-head"><h2>App</h2></div><div class="card-body"><table class="kv-table">
         <tr><td>Access</td><td>${esc(s.app.access)}</td></tr>
@@ -234,8 +233,69 @@ async function renderSettings() {
     <div class="card" style="margin-top:18px"><div class="card-head"><div><h2>Free-tier limits</h2>
         <p class="muted">Daily limits reset at 00:00 UTC (${esc(timeUntil(s.resets.daily))}); monthly on ${esc(new Date(s.resets.monthly).toLocaleDateString())}.</p></div></div>
       <div class="card-body"><div class="table-wrap"><table><thead><tr><th>API</th><th class="num">Today</th><th class="num">This month</th><th class="num">Left</th></tr></thead><tbody>${limits}</tbody></table></div></div></div>
-    <div class="card" style="margin-top:18px"><div class="card-head"><h2>Features</h2></div>
-      <div class="card-body"><div class="table-wrap"><table class="kv-table">${features}</table></div></div></div>`;
+    <h2 class="section-title" style="margin-top:22px">Change settings</h2>
+    <p class="muted small" style="margin-top:-6px">Anyone who can open this app can change these, which is why it only opens on the server itself. Database, ports and passwords stay in <span class="mono">.env</span>.</p>
+    <div class="settings-grid">${ed.groups.map(settingsGroup).join("")}</div>
+    <div class="card" style="margin-top:18px"><div class="card-head"><h2>Recent changes</h2></div>
+      <div class="card-body">${ed.history.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Setting</th><th>From</th><th>To</th></tr></thead><tbody>
+        ${ed.history.map((h) => `<tr><td>${esc(timeAgo(h.at))}</td><td class="mono">${esc(h.key)}</td><td>${esc(h.old ?? "—")}</td><td>${h.new == null ? `<span class="muted">reset to .env</span>` : esc(h.new)}</td></tr>`).join("")}
+      </tbody></table></div>` : `<p class="muted">No changes made in the app yet.</p>`}</div></div>`;
+}
+
+function settingInput(x) {
+  const name = esc(x.key);
+  if (x.type === "secret") {
+    return `<input type="password" name="${name}" autocomplete="off" placeholder="${x.value ? `Set (${esc(x.value)}): paste a new key to replace` : "Paste the key"}">`;
+  }
+  if (x.type === "bool") {
+    return `<select name="${name}" data-initial="${x.value ? "true" : "false"}"><option value="true" ${x.value ? "selected" : ""}>On</option><option value="false" ${x.value ? "" : "selected"}>Off</option></select>`;
+  }
+  if (x.type === "choice") {
+    return `<select name="${name}" data-initial="${esc(x.value)}">${x.choices.map((c) => `<option ${c === x.value ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+  }
+  const attrs = x.type === "int" ? `type="number" step="1" ${x.min != null ? `min="${x.min}"` : ""} ${x.max != null ? `max="${x.max}"` : ""}` : `type="text"`;
+  return `<input ${attrs} name="${name}" value="${esc(x.value ?? "")}" data-initial="${esc(x.value ?? "")}">`;
+}
+
+function settingsGroup(g) {
+  const hasCost = g.settings.some((x) => x.free_max != null);
+  const rows = g.settings.map((x) => `<div class="setting-row">
+      <div class="setting-label"><label for="set-${esc(x.key)}">${esc(x.label)}</label>
+        <span class="mono muted small">${esc(x.key)}</span>
+        ${x.source === "app" ? `<span class="pill ok small" title="Changed in the app; .env has ${esc(x.env_value ?? "nothing")}">changed in app</span>` : ""}
+        ${x.restart ? `<span class="pill warn small" title="Read when the app starts">needs restart</span>` : ""}
+        ${x.help ? `<div class="muted small">${esc(x.help)}</div>` : ""}</div>
+      <div class="setting-input">${settingInput(x).replace("<input", `<input id="set-${esc(x.key)}"`).replace("<select", `<select id="set-${esc(x.key)}"`)}
+        ${x.source === "app" ? `<button type="button" class="btn ghost sm" data-action="setting-reset" data-key="${esc(x.key)}" title="Back to the .env value (${esc(x.env_value ?? "not set")})">Reset</button>` : ""}</div>
+    </div>`).join("");
+  return `<form class="card" data-form="settings-group"><div class="card-head"><h2>${esc(g.name)}</h2></div>
+    <div class="card-body">${rows}
+      ${hasCost ? `<label class="run-check" style="margin-top:10px"><input type="checkbox" name="__accept_charges"> I accept possible charges for monthly limits above the free tier</label>` : ""}
+      <div class="toolbar" style="margin-top:12px"><button class="btn primary sm" type="submit">Save</button></div></div></form>`;
+}
+
+async function saveSettingsGroup(form) {
+  const values = {};
+  form.querySelectorAll("input[name], select[name]").forEach((el) => {
+    if (el.name === "__accept_charges") return;
+    if (el.type === "password") {
+      if (el.value.trim()) values[el.name] = el.value.trim();
+    } else if (el.value !== el.dataset.initial) {
+      values[el.name] = el.value;
+    }
+  });
+  if (!Object.keys(values).length) return toast("Nothing changed");
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const r = await api("/v1/settings", { method: "PATCH", body: JSON.stringify({ values, accept_charges: Boolean(form.querySelector('[name="__accept_charges"]')?.checked) }) });
+    toast(r.changed.length ? `Saved: ${r.changed.join(", ")}` : "No change");
+    if (r.restart_needed.length) toast(`${r.restart_needed.join(", ")}: applies after "docker compose restart api worker"`);
+    renderSettings();
+  } catch (err) {
+    toast(err.message, "bad");
+    btn.disabled = false;
+  }
 }
 
 function timeUntil(iso) {
@@ -1433,6 +1493,12 @@ document.addEventListener("click", (e) => {
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
+  if (action?.dataset.action === "setting-reset") {
+    action.disabled = true;
+    return api(`/v1/settings/${encodeURIComponent(action.dataset.key)}`, { method: "DELETE" })
+      .then(() => { toast(`${action.dataset.key} is back to the .env value`); renderSettings(); })
+      .catch((err) => { toast(err.message, "bad"); action.disabled = false; });
+  }
   if (action?.dataset.action === "delete-open") {
     document.getElementById("delete-box").hidden = false;
     return;
@@ -1548,6 +1614,7 @@ document.addEventListener("submit", (e) => {
   const f = e.target.closest("[data-form]");
   if (!f || f.id === "projectForm") return;
   e.preventDefault();
+  if (f.dataset.form === "settings-group") return saveSettingsGroup(f);
   const pid = encodeURIComponent(f.dataset.project);
   const value = f.querySelector("input").value.trim();
   if (!value) return;
