@@ -26,7 +26,7 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 6 | Service list & keyword generator | Step 4, §2 | **Done** (competitor patterns come with Phase 8) | 100% | — |
 | 7 | Rank tracking & visibility | §2 | **Done** | 100% | — |
 | 8 | Competitors & gap analysis | §3 | Not started | 0% | 3 d |
-| 9 | Full pipeline, reports & UI | §4, §7 | Partial (new UI shell done) | 20% | 3 d |
+| 9 | Full pipeline, reports & UI | §4, §7 | Partial (UI for phases 1–7 done; reports not started) | 30% | 3 d |
 | 10 | Hardening & compliance | §6 | Not started | 0% | 3 d |
 | **v1 total (0–10)** | | | | **≈ 80%** | **≈ 9 d left (~2 weeks)** |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
@@ -122,14 +122,14 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 **Goal:** all brief profile fields, correct and normalised.
 
-- [~] Name, category, rating, phone, website, hours, photo count (old scraper gets these, but by a disallowed method; redo via Places)
-- [ ] Place Details with field mask: `id, displayName, formattedAddress, location, googleMapsUri, websiteUri, primaryType(DisplayName), types, internationalPhoneNumber, regularOpeningHours, currentOpeningHours, businessStatus, rating, userRatingCount, photos, accessibilityOptions` + service-option fields
-- [ ] `review_count` from `userRatingCount` (fixes the old bug where every count was wrong)
-- [ ] `map_pin_status` + `pin_vs_website_address_distance_meters`
-- [ ] Structured `opening_hours` + separate `special_hours`
-- [ ] `null` for unavailable fields (never "N/A" / "not offered")
-- [ ] `last_checked_at`, provenance, raw response saved
-- [ ] `POST /v1/projects/{id}/gbp-audit`
+- [x] Name, category, rating, phone, website, hours, photo count via Places API (New) (old scraper removed)
+- [x] Place Details with field mask: `id, displayName, formattedAddress, location, googleMapsUri, websiteUri, primaryType(DisplayName), types, internationalPhoneNumber, regularOpeningHours, currentOpeningHours, businessStatus, rating, userRatingCount, photos, accessibilityOptions` + service-option fields
+- [x] `review_count` from `userRatingCount` (fixes the old bug where every count was wrong)
+- [x] `map_pin_status` + `pin_vs_website_address_distance_meters` (invalid website coordinates detected)
+- [x] Structured `opening_hours` + separate `special_hours`
+- [x] `null` for unavailable fields (never "N/A" / "not offered")
+- [x] `last_checked_at`, provenance, raw response saved
+- [x] `POST /v1/projects/{id}/gbp-audit`
 
 **Done when:** all 17 profile fields from the brief are populated or explicitly `null`, for both test businesses.
 
@@ -220,14 +220,14 @@ Effort estimates are rough, for one developer working with Claude, in working da
 **Goal:** one click/one call runs the whole audit and produces a report.
 
 - [x] Web UI shell (`app/static/`, served at http://localhost:8000): overview (health, stat tiles, free-tier usage meters, setup check from the latest diagnostic), projects (cards + New project dialog with validation), jobs (list, status filter, live job page with step timeline). Light/dark mode, phone layout. Verified in Chrome on 2026-10-07.
-- [ ] Extend the UI as each phase lands (audit results, rankings, competitors, gaps, report download)
+- [~] Extend the UI as each phase lands: audit results, match, website vs Google, reviews, services & keywords, rankings ✅ (project page in step order 1 → 2 → 3); competitors, gaps, report download ⬜
 - [ ] Pipeline job: website → discover → profile → services/keywords → rankings → competitors → gaps → report
 - [ ] `partial_success` when an optional step fails (e.g. one SERP call)
 - [ ] HTML report (Jinja2) with source attribution + Google review links
 - [ ] PDF export (WeasyPrint)
 - [ ] CSV export (profile, rankings, competitors, gaps)
 - [ ] `GET /v1/projects/{id}/report?format=html|pdf|csv`
-- [~] Simple UI: create project ✅ → watch job progress ✅ → view/download report ⬜; manual GBP selection screen ⬜ (Phase 3)
+- [~] Simple UI: create project (+ Quick fill) ✅ → watch job progress ✅ → manual GBP selection screen ✅ → view/download report ⬜
 
 **Done when:** a single `POST /v1/jobs` produces a downloadable report end to end.
 
@@ -267,4 +267,4 @@ Each item is independent and can be picked in any order after v1. ⚠️ marks i
 ## What you need to do next
 
 1. Optional: set `NOMINATIM_USER_AGENT` (your email) or enable the Geocoding API, for map-pin distances on sites without coordinates.
-2. Next build phases: 6 (keywords) → 7 (rankings) → 8 (competitors & gaps) → 9 (reports) → 10 (hardening).
+2. Next build phases: 8 (competitors & gaps) → 9 (reports) → 10 (hardening).
