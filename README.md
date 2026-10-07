@@ -11,7 +11,7 @@ Audits a local business's **Google Business Profile**:
 
 It is an **in-house tool: there is no login screen**. It only opens on the server itself (reach it through an SSH tunnel).
 
-Everything runs in **Docker** on one **Ubuntu** server, using the **free tiers** of Google and SerpApi. Built-in limits stop the app before any free allowance is used up. What the app does, in detail: [docs/PRODUCT.md](docs/PRODUCT.md).
+Everything runs in **Docker** on one **Ubuntu** server, using the **free tiers** of Google and SerpApi. Built-in limits stop the app before any free allowance is used up. What the app does, in detail: [docs/PRODUCT.md](docs/PRODUCT.md). The complete phase-by-phase guide with diagrams: [docs/PROJECT_DOCUMENTATION.md](docs/PROJECT_DOCUMENTATION.md).
 
 ---
 
