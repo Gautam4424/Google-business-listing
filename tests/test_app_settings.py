@@ -59,7 +59,7 @@ def test_monthly_limit_above_free_tier_needs_confirmation(client):
 
 
 def test_api_keys_are_write_only(client, db):
-    new_key = "AIzaNEWKEY-1234567890-xyz"
+    new_key = "AIzaFAKE-test-key-yz"  # not a real key (short enough not to look like one)
     r = client.patch("/v1/settings", json={"values": {"GOOGLE_API_KEY": new_key}})
     assert r.status_code == 200
     assert get_places_client()._api_key == new_key  # used right away
