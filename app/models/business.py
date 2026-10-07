@@ -13,6 +13,8 @@ class Business(IdMixin, TimestampMixin, ProvenanceMixin, Base):
     __tablename__ = "businesses"
 
     place_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    # Google's numeric id: Local Pack results have it but no place_id
+    cid: Mapped[str | None] = mapped_column(String(40), index=True)
     name: Mapped[str] = mapped_column(String(300))
     domain: Mapped[str | None] = mapped_column(String(255), index=True)
     is_client: Mapped[bool] = mapped_column(Boolean, default=False)

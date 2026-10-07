@@ -31,6 +31,7 @@ const STEP_LABEL = {
   check_budget: "Check SerpApi credits",
   collect_rankings: "Local Pack & Local Finder searches",
   compute_visibility: "Visibility score",
+  find_competitors: "Competitors & gaps",
 };
 const stepLabel = (name) => STEP_LABEL[name] || humanize(name);
 const STEP_ICON = { succeeded: "✓", failed: "!", skipped: "–", running: "…", pending: "" };
@@ -547,7 +548,7 @@ function rankingsCard(projectId, data, est) {
     <div class="rank-grid">
       <div class="table-wrap"><table class="rank-table"><thead><tr><th>Keyword</th><th>Local Pack</th><th>Local Finder</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div><div class="label">Businesses appearing most</div><ul class="top-biz">${top}</ul>
-        <p class="muted small">Competitor analysis builds on these (next phase).</p></div>
+        <p class="muted small">Full comparison and gaps in step 4 below.</p></div>
     </div></div></div>`;
 }
 
@@ -563,6 +564,86 @@ async function renderRankingSection(project) {
     if (wasOpen) showRunCost(project.id);  // keywords changed: show the new cost
   } catch (err) {
     holder.innerHTML = `<div class="card card-body muted">Could not load rankings: ${esc(err.message)}</div>`;
+  }
+}
+
+/* ---------- Competitors & gaps (Phase 8) ---------- */
+
+const GAP_LABEL = { ranking: "Ranking", category: "Category", review: "Reviews", service: "Service", review_topic: "Review topic" };
+const PRIORITY_CLASS = { high: "bad", medium: "warn", low: "idle" };
+const GENERIC_CATEGORY = new Set(["service establishment", "establishment", "point of interest"]);
+
+function compRow(c, you = false) {
+  const cats = (c.categories || []).filter((x) => !GENERIC_CATEGORY.has(x.toLowerCase())).slice(0, 4).join(" · ");
+  const speed = c.review_velocity_30d != null ? `<div class="muted small">+${esc(c.review_velocity_30d)}/month</div>` : "";
+  const link = c.maps_url ? ` <a href="${esc(c.maps_url)}" target="_blank" rel="noopener noreferrer" class="small">Maps ↗</a>` : "";
+  return `<tr class="${you ? "is-client" : ""}">
+    <td><b>${esc(c.business_name || "—")}</b>${you ? ` <span class="tag">you</span>` : link}
+      <div class="muted small">${esc(cats || c.primary_category || "")}</div>
+      ${c.website_domain ? `<div class="muted small">${esc(c.website_domain)}</div>` : ""}</td>
+    <td class="num">${c.rating != null ? `${esc(c.rating)} ★` : "—"}</td>
+    <td class="num">${c.review_count != null ? fmtNum(c.review_count) : "—"}${speed}</td>
+    <td class="num">${you ? `${esc(c.local_finder_count)}/${esc(c.keywords)}` : `${Math.round(c.keyword_share * 100)}%`}</td>
+    <td class="num">${esc(c.local_pack_count)}</td>
+    <td class="num">${you || c.keyword_overlap == null ? "—" : `${Math.round(c.keyword_overlap * 100)}%`}</td></tr>`;
+}
+
+function gapItem(g, projectId) {
+  const ev = g.evidence || {};
+  const who = Array.isArray(ev.competitors) ? ev.competitors : ev.competitors ? Object.keys(ev.competitors) : [];
+  const pack = ev.local_pack ? ev.local_pack.map((p) => `#${p.rank} ${p.business_name}`) : [];
+  const support = ev.related_client_services?.length ? `<div class="small ok-text">Supported by your services: ${esc(ev.related_client_services.join(", "))}</div>` : "";
+  const kwBtn = ev.suggested_keyword
+    ? `<button class="btn ghost sm" data-action="gap-keyword" data-project="${esc(projectId)}" data-keyword="${esc(ev.suggested_keyword)}" title="Adds it to step 2 (switched on if under the keyword cap)">Track “${esc(ev.suggested_keyword)}”</button>` : "";
+  return `<li class="gap">
+    <div class="gap-head"><span class="pill ${PRIORITY_CLASS[g.priority] || "idle"} small">${esc(g.priority)}</span>
+      <span class="tag">${esc(GAP_LABEL[g.gap_type] || g.gap_type)}</span><b>${esc(g.title || "")}</b></div>
+    <p>${esc(g.recommendation)}</p>${support}
+    ${pack.length ? `<div class="muted small">Local Pack: ${esc(pack.join(" · "))}</div>`
+      : who.length ? `<div class="muted small">Competitors: ${esc(who.slice(0, 6).join(", "))}${who.length > 6 ? ` +${who.length - 6}` : ""}</div>` : ""}
+    ${ev.basis ? `<div class="muted small">${esc(ev.basis)}</div>` : ""}
+    ${kwBtn ? `<div class="gap-actions">${kwBtn}</div>` : ""}</li>`;
+}
+
+function competitorsSection(projectId, comp, gaps, hasCheck) {
+  const title = `<h2 class="section-title"><span class="step-no">4</span>Competitors & gaps</h2>`;
+  const btn = (label, primary = false) => `<button class="btn ${primary ? "primary" : "ghost"} sm" data-action="comp-analyze" data-project="${esc(projectId)}" title="Uses the stored ranking results: 0 SerpApi credits">${label}</button>`;
+  if (!comp.analysis) {
+    return `${title}<div class="card card-body">${hasCheck
+      ? `<p class="muted">Competitors come from the businesses in your latest ranking check (no SerpApi credits).</p>${btn("Find competitors · free", true)}`
+      : `<p class="muted">Run a ranking check first (step 3): competitors are the businesses that keep appearing for your keywords.</p>`}</div>`;
+  }
+  const a = comp.analysis;
+  const rows = comp.competitors.map((c) => compRow(c)).join("");
+  const counts = Object.entries(gaps.counts || {}).filter(([, n]) => n).map(([t, n]) => `<span class="chip">${esc(GAP_LABEL[t] || t)} · ${n}</span>`).join("");
+  const sampleNote = comp.competitors.some((c) => c.review_sample_size)
+    ? "Review topics are based on Google's public sample of up to 5 reviews per business." : "";
+  return `${title}
+    <div class="card"><div class="card-head"><div><h2>Competitors</h2>
+        <p class="muted">${esc(a.competitors)} found from ${esc(a.keywords ?? "?")} keywords · analysed ${esc(timeAgo(a.analysed_at))} · <span title="${esc(comp.rule)}">rule: ≥20% of keywords or ≥3 Local Packs</span></p></div>
+        ${btn("Re-analyse · free")}</div>
+      <div class="card-body">${comp.competitors.length
+        ? `<div class="table-wrap"><table class="comp-table"><thead><tr><th>Business</th><th class="num">Rating</th><th class="num">Reviews</th><th class="num" title="Share of tracked keywords it appears for">Keywords</th><th class="num" title="Keywords where it is in the Local Pack">Local Pack</th><th class="num" title="Keywords where you both appear">Overlap</th></tr></thead>
+          <tbody>${comp.client ? compRow(comp.client, true) : ""}${rows}</tbody></table></div>`
+        : `<p class="muted">No business appears often enough to count as a competitor yet. Track more keywords (step 2) and re-check.</p>`}
+        ${sampleNote ? `<p class="muted small" style="margin:10px 0 0">${esc(sampleNote)}</p>` : ""}</div></div>
+    <div class="card"><div class="card-head"><div><h2>Gaps to review</h2>
+        <p class="muted">${esc(gaps.note || "")}</p></div></div>
+      <div class="card-body">${counts ? `<div class="chips" style="margin-bottom:12px">${counts}</div>` : ""}
+        ${gaps.gaps.length ? `<ul class="gaps">${gaps.gaps.map((g) => gapItem(g, projectId)).join("")}</ul>` : `<p class="muted">No gaps found against these competitors.</p>`}</div></div>`;
+}
+
+async function renderCompetitorSection(project) {
+  const holder = document.getElementById("comp-section");
+  if (!holder || !project.place_id) return;
+  const pid = encodeURIComponent(project.id);
+  try {
+    const [comp, gaps, ranks] = await Promise.all([
+      api(`/v1/projects/${pid}/competitors`), api(`/v1/projects/${pid}/gaps`), api(`/v1/projects/${pid}/rankings`),
+    ]);
+    holder.innerHTML = competitorsSection(project.id, comp, gaps, Boolean(ranks.latest));
+  } catch (err) {
+    holder.innerHTML = `<div class="card card-body muted">Could not load competitors: ${esc(err.message)}</div>`;
   }
 }
 
@@ -910,11 +991,13 @@ async function renderProject(id, silent = false) {
   const keepY = silent ? window.scrollY : null;
   const oldKw = silent ? document.getElementById("kw-section")?.innerHTML || "" : "";
   const oldRank = silent ? document.getElementById("rank-section")?.innerHTML || "" : "";
+  const oldComp = silent ? document.getElementById("comp-section")?.innerHTML || "" : "";
   const steps = linked
     ? `<nav class="stepper" aria-label="Steps">
         <button data-action="jump" data-target="sec-audit"><span class="step-no">1</span>Listing audit</button>
         <button data-action="jump" data-target="kw-section"><span class="step-no">2</span>Services & keywords</button>
-        <button data-action="jump" data-target="rank-section"><span class="step-no">3</span>Rankings</button></nav>` : "";
+        <button data-action="jump" data-target="rank-section"><span class="step-no">3</span>Rankings</button>
+        <button data-action="jump" data-target="comp-section"><span class="step-no">4</span>Competitors & gaps</button></nav>` : "";
   view.innerHTML = `
     <a class="crumb" href="#projects">← Projects</a>
     <div class="page-head"><div>
@@ -928,9 +1011,10 @@ async function renderProject(id, silent = false) {
       <section id="sec-audit" class="stack">${g ? `<h2 class="section-title"><span class="step-no">1</span>Listing audit</h2>` : ""}
         ${matchCard(project)}${body}</section>
       <section id="kw-section">${oldKw}</section>
-      <section id="rank-section">${oldRank}</section></div>`;
+      <section id="rank-section">${oldRank}</section>
+      <section id="comp-section" class="stack">${oldComp}</section></div>`;
   if (keepY != null) window.scrollTo(0, keepY);
-  await Promise.all([renderKeywordSection(project), renderRankingSection(project)]);
+  await Promise.all([renderKeywordSection(project), renderRankingSection(project), renderCompetitorSection(project)]);
 
   if (running) schedule(() => renderProject(id, true), 2000);
 }
@@ -1233,6 +1317,16 @@ document.addEventListener("click", (e) => {
     action.innerHTML = `<span class="spinner"></span>Starting…`;
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
+  }
+  if (action?.dataset.action === "comp-analyze") {
+    action.disabled = true;
+    action.innerHTML = `<span class="spinner"></span>Analysing…`;
+    return kwAction(() => api(`/v1/projects/${pid}/competitors/analyze`, { method: "POST" }),
+      "Finding competitors (no SerpApi credits used)", { full: true });
+  }
+  if (action?.dataset.action === "gap-keyword") {
+    return kwAction(() => api(`/v1/projects/${pid}/keywords`, { method: "POST", body: JSON.stringify({ keyword: action.dataset.keyword }) }),
+      "Keyword added to step 2");
   }
   if (action?.dataset.action === "svc-refresh") {
     return kwAction(() => api(`/v1/projects/${pid}/services/refresh`, { method: "POST" }), "Services rebuilt from the latest audit");

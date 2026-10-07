@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     ranking_mode: str = "full"
     ranking_cache_hours: int = 24  # re-checking a keyword within this window reuses the saved result (free)
     maps_zoom: int = 14  # Local Finder search area around the keyword's coordinates
+    # Phase 8: competitors come from the stored ranking results (0 SerpApi searches).
+    competitor_max: int = 10  # most visible competitors analysed per project
+    # 1 Google Place Details per competitor (cached) for its review sample; off = search-result data only
+    competitor_details: bool = True
+    competitor_details_cache_days: int = 7
 
     google_data_ttl_days: int = 30
     http_timeout_seconds: float = 20.0

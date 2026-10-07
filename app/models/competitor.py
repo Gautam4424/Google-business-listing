@@ -30,6 +30,10 @@ class CompetitorMetric(IdMixin, TimestampMixin, ProvenanceMixin, Base):
         Uuid, ForeignKey("competitors.id", ondelete="CASCADE"), index=True
     )
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    audit_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("audit_jobs.id", ondelete="SET NULL"), index=True
+    )
+    primary_category: Mapped[str | None] = mapped_column(String(200))
     rating: Mapped[float | None] = mapped_column(Float)
     review_count: Mapped[int | None] = mapped_column(Integer)
     review_velocity_30d: Mapped[float | None] = mapped_column(Float)  # NULL until two snapshots exist
@@ -39,6 +43,13 @@ class CompetitorMetric(IdMixin, TimestampMixin, ProvenanceMixin, Base):
     local_pack_appearances: Mapped[int | None] = mapped_column(Integer)
     local_finder_appearances: Mapped[int | None] = mapped_column(Integer)
     keyword_overlap: Mapped[float | None] = mapped_column(Float)
+    # [{"keyword", "local_pack_rank", "local_finder_rank",
+    #   "client_local_pack_rank", "client_local_finder_rank"}]
+    keywords: Mapped[list | None] = mapped_column(JSONType)
+    # {"positive": {tag: n}, "negative": {tag: n}} from the public review sample (max 5, Places API)
+    review_topics: Mapped[dict | None] = mapped_column(JSONType)
+    review_sample_size: Mapped[int | None] = mapped_column(Integer)
+    profile_source: Mapped[str | None] = mapped_column(String(40))  # google_places | search_results
 
 
 class GapRecommendation(IdMixin, TimestampMixin, Base):
@@ -51,6 +62,8 @@ class GapRecommendation(IdMixin, TimestampMixin, Base):
         Uuid, ForeignKey("audit_jobs.id", ondelete="SET NULL")
     )
     gap_type: Mapped[str] = mapped_column(String(30))  # category | service | review | review_topic | ranking
+    title: Mapped[str | None] = mapped_column(String(300))
+    priority: Mapped[str] = mapped_column(String(10), default="medium")  # high | medium | low
     client_value: Mapped[dict | list | None] = mapped_column(JSONType)
     competitor_pattern: Mapped[dict | list | None] = mapped_column(JSONType)
     recommendation: Mapped[str] = mapped_column(Text)

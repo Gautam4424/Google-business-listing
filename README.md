@@ -136,6 +136,8 @@ The settings in `.env`:
 | `KEYWORD_CAP` | no | Max active keywords per project (default `10`). Each costs 2 SerpApi searches per ranking check. |
 | `RANKING_MODE` | no | `full` (default): Local Pack + Maps, 2 SerpApi searches per active keyword per check. `maps_only`: 1 per keyword, Local Pack estimated. |
 | `RANKING_CACHE_HOURS` | no | Re-checking within this many hours (default `24`) reuses saved results for free |
+| `COMPETITOR_MAX` | no | Most visible competitors analysed per project (default `10`) |
+| `COMPETITOR_DETAILS` | no | `true` (default): 1 free Google Place Details per competitor (cached 7 days) for its review sample; `false`: search-result data only |
 | `SERPAPI_REVIEWS_ENABLED` | no | `false` (default) uses Google's 5 free reviews; `true` uses 2 SerpApi credits per audit for the top 10 |
 | `QUOTA_*` | no | Free-tier safety limits. The app refuses calls above these. |
 
@@ -235,8 +237,11 @@ curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json
 1. Go to **Projects**, then **+ New project**.
 2. Paste one line into **Quick fill**, for example `Astaneh Construction 3080 Yonge St Ste 6060, Toronto, ON M4N 1S1, Canada`, and press **Enter**.
 3. Click **Create project**. The audit runs by itself (about 30 s).
-4. **Rankings** card → **Run ranking check**: it first shows how many SerpApi searches the check uses and how many are left, then runs after you confirm.
-5. Scroll to **Services & keywords**: tick the core services, add the areas you serve, and adjust which keywords are on (the line above the table shows how many SerpApi credits a ranking check will use).
+4. The project page runs top to bottom in four steps (the buttons at the top jump to each one):
+   1. **Listing audit**: the Google profile, website comparison and reviews.
+   2. **Services & keywords**: tick the core services, add the areas you serve, and choose which keywords are on (the line above the table shows how many SerpApi credits a ranking check will use).
+   3. **Rankings** → **Run ranking check**: it first shows how many SerpApi searches the check uses and how many are left, then runs after you confirm.
+   4. **Competitors & gaps**: filled in automatically after each ranking check (no SerpApi credits). Every gap is something to *review*, not to copy.
 
 API reference: **http://localhost:8000/docs** (through your tunnel or proxy).
 

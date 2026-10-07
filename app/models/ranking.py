@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, IdMixin, TimestampMixin, utcnow
+from app.models.base import Base, IdMixin, JSONType, TimestampMixin, utcnow
 
 
 class Keyword(IdMixin, TimestampMixin, Base):
@@ -89,6 +89,7 @@ class RankingResult(IdMixin, Base):
     business_name: Mapped[str] = mapped_column(String(300))
     address: Mapped[str | None] = mapped_column(Text)
     primary_category: Mapped[str | None] = mapped_column(String(200))
+    categories: Mapped[list | None] = mapped_column(JSONType)  # all GBP categories (Maps results)
     rating: Mapped[float | None] = mapped_column(Float)
     review_count: Mapped[int | None] = mapped_column(Integer)
     website_url: Mapped[str | None] = mapped_column(Text)

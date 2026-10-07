@@ -2,6 +2,7 @@
 
 from app.models import Project
 from app.services import rankings
+from app.workers.jobs.competitor_analysis import find_competitors
 from app.workers.pipeline import Step, StepContext, StepPartial, register
 
 
@@ -53,5 +54,7 @@ register(
         Step("check_budget", check_budget, required=True),
         Step("collect_rankings", collect_rankings, required=True),
         Step("compute_visibility", compute_visibility, required=True),
+        # Phase 8: competitors + gaps from these results (0 SerpApi searches)
+        Step("find_competitors", find_competitors, required=False),
     ],
 )

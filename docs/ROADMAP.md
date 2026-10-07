@@ -25,10 +25,10 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 5 | Reviews & NLP | Step 5 | **Done** (GBP API for managed listings optional) | 100% | — |
 | 6 | Service list & keyword generator | Step 4, §2 | **Done** (competitor patterns come with Phase 8) | 100% | — |
 | 7 | Rank tracking & visibility | §2 | **Done** | 100% | — |
-| 8 | Competitors & gap analysis | §3 | Not started | 0% | 3 d |
-| 9 | Full pipeline, reports & UI | §4, §7 | Partial (UI for phases 1–7 done; reports not started) | 30% | 3 d |
-| 10 | Hardening & compliance | §6 | Not started | 0% | 3 d |
-| **v1 total (0–10)** | | | | **≈ 80%** | **≈ 9 d left (~2 weeks)** |
+| 8 | Competitors & gap analysis | §3 | **Done** (0 SerpApi credits) | 100% | — |
+| 9 | Full pipeline, reports & UI | §4, §7 | Partial (UI for phases 1–8 done; reports not started) | 35% | 3 d |
+| 10 | Hardening & compliance | §6 | Partial (old scraper removed, keys redacted, CI) | 10% | 3 d |
+| **v1 total (0–10)** | | | | **≈ 88%** | **≈ 6 d left** |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
 
 ---
@@ -169,7 +169,7 @@ Effort estimates are rough, for one developer working with Claude, in working da
 - [x] Keyword cap (`KEYWORD_CAP`, default 10 active) + credit preview (credits per ranking run, SerpApi left, runs possible); activation order: user keywords, then "in {city}" for every core service, then "near me", then "{service} {city}"; regeneration keeps the user's on/off switches; keywords with ranking history are deactivated, not deleted
 - [x] `build_services` + `generate_keywords` steps in `gbp_audit`
 - [x] UI "Services & keywords" section: tick core services (source badges, review mentions), customer types / generic types collapsed, add service, areas (add/remove), keyword table with on/off switches, own keywords, delete, budget line
-- [ ] Competitor category/service patterns as a keyword source (needs Phase 8 data)
+- [x] Competitor category/service patterns as a keyword source: service gaps carry a suggested keyword, added with one click ("Track …" in step 4)
 
 **Done when:** a plumber in Manchester project produces keywords like the brief's examples, each stored with full location settings.
 
@@ -204,14 +204,28 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 **Goal:** who the real competitors are and where the client falls short.
 
-- [ ] Competitor rule: appears for ≥ 20% of keywords **or** in the Local Pack for ≥ 3 keywords
-- [ ] Competitor profiles via the Phase 4 pipeline (watch the Places quota; reuse the cache)
-- [ ] `competitor_metrics` snapshots: categories, review count, rating, review velocity (`null` until 2 snapshots), domain, services, Pack/Finder appearances, keyword overlap
-- [ ] Gap rules: category, service, review count/rating, review-topic, ranking
-- [ ] Recommendation wording always "review whether … is accurate and eligible"
-- [ ] `GET /v1/projects/{id}/competitors`, `GET /v1/projects/{id}/gaps`
+- [x] Competitor rule (`app/services/competitors.py`): appears for ≥ 20% of keywords **or** in the Local Pack for ≥ 3 keywords, from the latest ranking check (**0 SerpApi searches**); client excluded; businesses merged by CID/place_id; the `COMPETITOR_MAX` (10) most visible kept
+- [x] Competitor profiles: real GBP categories, rating, review count, website, phone from the stored search results (`ranking_results.categories` new; older results read from the raw response); + 1 Google Place Details per competitor (cached 7 days, `COMPETITOR_DETAILS`) for the public review sample. Review texts are not stored, only their topics
+- [x] `competitor_metrics` snapshots per analysis: categories, review count, rating, review velocity (`null` until 2 snapshots ≥ 7 days apart; client velocity from its own profile snapshots), domain, review-topic services, Pack/Finder appearances, keyword overlap, per-keyword ranks vs the client
+- [x] Gap rules (`app/services/gaps.py`):
+  - category: held by ≥ 50% of competitors (min 2), not the client's; generic Google labels ("Service establishment") ignored
+  - service: competitor categories / review-topic services (≥ 2 competitors) missing from the client's services, with a suggested keyword
+  - review: count / rating / velocity below the competitor median
+  - review topic: praised for ≥ 30% of sampled competitors, absent from or negative in the client's reviews
+  - ranking: competitors in the Local Pack where the client is not
+- [x] Wording always "Review whether … is accurate and eligible"; category gaps say which client services support them (priority high) or warn "only if the business really provides this"
+- [x] `competitor_analysis` job (also the last, optional step of every `ranking_check`); `GET /v1/projects/{id}/competitors`, `POST …/competitors/analyze`, `GET /v1/projects/{id}/gaps`
+- [x] UI step 4 "Competitors & gaps": comparison table (you vs competitors), gap list with priority, evidence and "Track keyword"
+- [ ] Competitor websites (services from their pages) not crawled: kept light; categories + review topics cover service gaps
 
 **Done when:** gap output matches the brief's example shape, with evidence attached.
+
+✅ **Verified 2026-10-07** on 3 real projects (0 SerpApi credits, 27 Place Details, cached on re-run):
+- Proximity: 10 competitors of 35 businesses; "Gasfitter" category gap backed by the client's Gas Plumbing / Gas Leak Detection services; review-topic gaps (helpful, on time, communication).
+- Luxe: ranking gap for "general contractor in Toronto"; "Kitchen remodeler" category gap; fewer reviews (48 vs median 74); bathroom / home renovation services missing from its list.
+- OVO: ranking gap for "cabinet painting in Atlanta"; services such as pressure washing.
+
+120 tests passing.
 
 ---
 
@@ -220,7 +234,7 @@ Effort estimates are rough, for one developer working with Claude, in working da
 **Goal:** one click/one call runs the whole audit and produces a report.
 
 - [x] Web UI shell (`app/static/`, served at http://localhost:8000): overview (health, stat tiles, free-tier usage meters, setup check from the latest diagnostic), projects (cards + New project dialog with validation), jobs (list, status filter, live job page with step timeline). Light/dark mode, phone layout. Verified in Chrome on 2026-10-07.
-- [~] Extend the UI as each phase lands: audit results, match, website vs Google, reviews, services & keywords, rankings ✅ (project page in step order 1 → 2 → 3); competitors, gaps, report download ⬜
+- [~] Extend the UI as each phase lands: audit results, match, website vs Google, reviews, services & keywords, rankings, competitors & gaps ✅ (project page in step order 1 → 4); report download ⬜
 - [ ] Pipeline job: website → discover → profile → services/keywords → rankings → competitors → gaps → report
 - [ ] `partial_success` when an optional step fails (e.g. one SERP call)
 - [ ] HTML report (Jinja2) with source attribution + Google review links
@@ -267,4 +281,4 @@ Each item is independent and can be picked in any order after v1. ⚠️ marks i
 ## What you need to do next
 
 1. Optional: set `NOMINATIM_USER_AGENT` (your email) or enable the Geocoding API, for map-pin distances on sites without coordinates.
-2. Next build phases: 8 (competitors & gaps) → 9 (reports) → 10 (hardening).
+2. Next build phases: 9 (reports) → 10 (hardening).

@@ -124,6 +124,7 @@ def _row(rank: int, p: dict) -> dict:
     cid = _num(p.get("data_cid")) or _num(raw_pid)
     place_id = raw_pid if raw_pid and not _num(raw_pid) else None
     types = p.get("types") or []
+    categories = list(dict.fromkeys(([p["type"]] if p.get("type") else []) + types)) or None
     return {
         "rank": rank,
         "place_id": place_id,
@@ -131,6 +132,7 @@ def _row(rank: int, p: dict) -> dict:
         "business_name": p.get("title") or "",
         "address": p.get("address"),
         "primary_category": p.get("type") or (types[0] if types else None),
+        "categories": categories,
         "rating": p.get("rating"),
         "review_count": p.get("reviews"),
         "phone": p.get("phone"),

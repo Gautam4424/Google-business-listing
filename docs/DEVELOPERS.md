@@ -56,6 +56,9 @@ curl localhost:8000/v1/usage    # free-tier usage this month
 | GET | `/v1/projects/{id}/rankings/estimate` | SerpApi searches a check needs (cached = free) vs real balance + renewal date |
 | POST | `/v1/projects/{id}/rankings/run` | Local Pack + Local Finder check for active keywords (`{"mode": "full"\|"maps_only", "force": false}`) |
 | GET | `/v1/projects/{id}/rankings` | Latest check: visibility score, counts, per-keyword ranks, change, history, top businesses |
+| GET | `/v1/projects/{id}/competitors` | Competitors from the latest ranking check (brief rule), side by side with the client |
+| POST | `/v1/projects/{id}/competitors/analyze` | Re-run competitors + gaps on the latest check (0 SerpApi; ≤ `COMPETITOR_MAX` cached Place Details). Also runs automatically after every ranking check |
+| GET | `/v1/projects/{id}/gaps` | Category, service, review, review-topic and ranking gaps (brief §3 shape + `title`, `priority`, `evidence`) |
 | GET | `/v1/jobs` | List jobs, newest first (`?project_id=`, `?status=`) |
 | GET | `/v1/jobs/{id}` | Job status with per-step results and errors |
 | GET | `/v1/usage` | Free-tier quota usage per billable API |
