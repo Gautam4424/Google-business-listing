@@ -246,25 +246,72 @@ def test_partial_success_when_some_searches_fail(db, setup):
     assert {u["sku"]: u["month_count"] for u in _usage(db)}["serpapi_search"] == 2  # failed searches refunded
 
 
-def test_not_enough_credits_is_refused(client, db, setup, enqueued):
+def test_no_searches_left_is_refused_with_a_plain_message(client, db, setup, enqueued):
     project, use, calls = setup
-    use(searches_left=3)
+    use(searches_left=0)
     r = client.post(f"/v1/projects/{project.id}/rankings/run", json={"mode": "full"})
     assert (
         r.status_code == 422
-        and "needs 4, 3 left" in r.json()["detail"]
+        and "0 searches left" in r.json()["detail"]
         and "2026-11-06" in r.json()["detail"]
     )
     assert calls == [] and enqueued == []
-    ok = client.post(f"/v1/projects/{project.id}/rankings/run", json={"mode": "maps_only"})
-    assert ok.status_code == 202  # 2 searches fit
+
+
+def test_fewer_searches_than_needed_still_starts(client, db, setup, enqueued):
+    project, use, _ = setup
+    use(searches_left=3)  # needs 4
+    est = client.get(f"/v1/projects/{project.id}/rankings/estimate").json()
+    assert not est["enough"] and est["can_start"]
+    assert client.post(f"/v1/projects/{project.id}/rankings/run", json={"mode": "full"}).status_code == 202
+
+
+def test_limit_on_the_second_keyword_keeps_the_first(db, setup, monkeypatch):
+    project, use, calls = setup
+    use()
+    monkeypatch.setattr(
+        rankings.get_settings(), "quota_serpapi_daily", 3
+    )  # keyword 1: 2, keyword 2: pack only
+    job = run_job(db, _job(db, project, mode="full").id)
+    assert job.status == "partial_success"
+    step = next(s for s in job.steps if s["name"] == "collect_rankings")
+    assert (
+        step["result"]["keywords_checked"] == 1
+        and "daily limit reached" in step["result"]["stopped_by_limit"]
+    )
+    assert step["error"].startswith("Limit reached after 1 of 2 keywords; their results are saved.")
+    assert len(calls) == 3  # stopped at the limit: no further attempts
+    rows = {r["keyword"]: r for r in rankings.check_report(db, project, job, None)["keywords"]}
+    first, second = rows["plumber in Point Piper"], rows["blocked drains near me"]
+    assert first["local_pack_rank"] == 2 and first["local_finder_rank"] == 3 and first["local_finder_checked"]
+    assert second["local_pack_rank"] == 2 and second["local_finder_checked"] is False  # Local Pack came first
+
+
+def test_live_check_shows_results_so_far(client, db, setup):
+    project, use, _ = setup
+    use()
+    done = run_job(db, _job(db, project, mode="full").id)
+    live = AuditJob(job_type="ranking_check", project_id=project.id, params={"mode": "full"},
+                    status="running", steps=[{"name": "collect_rankings", "status": "running"}])  # fmt: skip
+    db.add(live)
+    db.flush()
+    cols = ("project_id", "keyword_id", "provider", "result_type", "country", "language", "device", "keyword",
+            "location_name", "client_rank")  # fmt: skip
+    for run in db.query(RankingRun).filter_by(audit_job_id=done.id).all()[:2]:  # pretend 2 searches are done
+        db.add(RankingRun(**{c: getattr(run, c) for c in cols}, audit_job_id=live.id))
+    db.commit()
+    data = client.get(f"/v1/projects/{project.id}/rankings").json()
+    assert data["live"]["keywords_total"] == 2 and data["live"]["step"] == "collect_rankings"
+    assert data["latest"]["job_id"] == str(done.id)  # the previous finished check is still shown
+    assert any(not k.get("pending") for k in data["live"]["keywords"])
+    assert data["limit"] is None
 
 
 def test_endpoints(client, db, setup, enqueued):
     project, use, _ = setup
     use()
     assert client.get(f"/v1/projects/{project.id}/rankings").json() == {
-        "latest": None, "history": [], "top_businesses": []
+        "latest": None, "history": [], "top_businesses": [], "live": None, "limit": None, "failed": None
     }  # fmt: skip
     est = client.get(f"/v1/projects/{project.id}/rankings/estimate").json()
     assert est["searches_needed"] == 4 and est["renews_on"] == "2026-11-06"

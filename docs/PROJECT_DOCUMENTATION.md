@@ -547,6 +547,12 @@ flowchart TB
 
 **Change over time** is compared only over the keywords checked both times, so adding a keyword never creates a fake jump.
 
+**Live results and limits:**
+- **Results appear as they arrive.** The check runs **keyword by keyword, Local Pack first**, and each result appears straight away in the Rankings section's **Live check** table (with a progress bar).
+- **A limit part-way keeps what was found.** If a free-tier limit is reached during the check (e.g. on keyword 2), it **stops** there: keyword 1's results are kept, a Maps search that didn't run shows "not checked (limit)", and the card explains "Limit reached after 1 of 2 keywords…".
+- **Fewer credits than needed:** the check still starts, and goes as far as the limit allows.
+- **Limit already reached:** the Rankings card shows one plain red message with the reset time, and the button says **Limit reached**. There's no spinner and no repeated checking.
+
 **Live example (Proximity Plumbing):**
 
 | Keyword | Local Pack | Local Finder | Score |

@@ -235,7 +235,7 @@ async function renderSettings() {
       <div class="card-body"><div class="table-wrap"><table><thead><tr><th>API</th><th class="num">Today</th><th class="num">This month</th><th class="num">Left</th></tr></thead><tbody>${limits}</tbody></table></div></div></div>
     <h2 class="section-title" style="margin-top:22px">Change settings</h2>
     <p class="muted small" style="margin-top:-6px">Anyone who can open this app can change these, which is why it only opens on the server itself. Database, ports and passwords stay in <span class="mono">.env</span>.</p>
-    <div class="settings-grid">${ed.groups.map(settingsGroup).join("")}</div>
+    <div class="settings-groups">${ed.groups.map(settingsGroup).join("")}</div>
     <div class="card" style="margin-top:18px"><div class="card-head"><h2>Recent changes</h2></div>
       <div class="card-body">${ed.history.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Setting</th><th>From</th><th>To</th></tr></thead><tbody>
         ${ed.history.map((h) => `<tr><td>${esc(timeAgo(h.at))}</td><td class="mono">${esc(h.key)}</td><td>${esc(h.old ?? "—")}</td><td>${h.new == null ? `<span class="muted">reset to .env</span>` : esc(h.new)}</td></tr>`).join("")}
@@ -269,7 +269,7 @@ function settingsGroup(g) {
         ${x.source === "app" ? `<button type="button" class="btn ghost sm" data-action="setting-reset" data-key="${esc(x.key)}" title="Back to the .env value (${esc(x.env_value ?? "not set")})">Reset</button>` : ""}</div>
     </div>`).join("");
   return `<form class="card" data-form="settings-group"><div class="card-head"><h2>${esc(g.name)}</h2></div>
-    <div class="card-body">${rows}
+    <div class="card-body"><div class="setting-list">${rows}</div>
       ${hasCost ? `<label class="run-check" style="margin-top:10px"><input type="checkbox" name="__accept_charges"> I accept possible charges for monthly limits above the free tier</label>` : ""}
       <div class="toolbar" style="margin-top:12px"><button class="btn primary sm" type="submit">Save</button></div></div></form>`;
 }
@@ -625,13 +625,23 @@ function rankingsCard(projectId, data, est) {
       <p class="run-cost" id="run-cost"></p>
       <div class="toolbar"><button class="btn primary sm" data-action="rank-confirm" data-project="${esc(projectId)}">Run now</button>
         <button class="btn ghost sm" data-action="rank-cancel">Cancel</button></div></div>`;
+  const live = data.live;
   const title = `<h2 class="section-title"><span class="step-no">3</span>Check rankings</h2>`;
+  const runBtn = live
+    ? `<button class="btn sm" disabled><span class="spinner"></span>Checking…</button>`
+    : data.limit
+      ? `<button class="btn sm" disabled title="${esc(data.limit)}">Limit reached</button>`
+      : `<button class="btn ${latest ? "" : "primary"} sm" data-action="rank-run" data-project="${esc(projectId)}">Run ranking check</button>`;
   const head = `<div class="card-head"><div><h2>Rankings</h2>
       <p class="muted">${latest ? `Last checked ${esc(timeAgo(latest.checked_at))} · ${latest.mode === "maps_only" ? "Maps only (Local Pack estimated)" : "Local Pack + Local Finder"}` : "Where the business appears on Google for its active keywords."}</p></div>
-      <button class="btn ${latest ? "" : "primary"} sm" data-action="rank-run" data-project="${esc(projectId)}">Run ranking check</button></div>`;
+      ${runBtn}</div>`;
+  // One plain message when a limit is reached: no spinner, no re-checking.
+  const notices = (data.limit && !live ? `<div class="notice bad"><b>Limit reached.</b> ${esc(data.limit)}</div>` : "")
+    + (data.failed && !live && !data.limit ? `<div class="notice bad"><b>Last check failed</b> (${esc(timeAgo(data.failed.at))}): ${esc(data.failed.error || "")}</div>` : "")
+    + (latest?.note && !live ? `<div class="notice warn">${esc(latest.note)}</div>` : "");
+  const body = (inner) => `${title}<div class="card">${head}<div class="card-body">${notices}${live ? liveCheck(live) : runBox}${inner}</div></div>`;
   if (!latest) {
-    return `${title}<div class="card">${head}<div class="card-body">${runBox}
-      <p class="muted">No ranking check yet. Each check uses SerpApi searches only for keywords that are <b>On</b> in step 2 above.</p></div></div>`;
+    return body(live ? "" : `<p class="muted">No ranking check yet. Each check uses SerpApi searches only for keywords that are <b>On</b> in step 2 above.</p>`);
   }
   const sm = latest.summary;
   const changeNote = sm.compared_keywords != null && sm.compared_keywords < sm.keywords
@@ -641,13 +651,13 @@ function rankingsCard(projectId, data, est) {
   const rows = latest.keywords.map((k) => `<tr>
       <td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div></td>
       <td>${k.local_pack_shown === false ? `<span class="muted">no Local Pack shown</span>` : rankCell(k.local_pack_rank, k.previous_local_pack_rank, k.local_pack_estimated ? ` <span class="tag">est.</span>` : "")}</td>
-      <td>${rankCell(k.local_finder_rank, k.previous_local_finder_rank)}</td>
+      <td>${k.local_finder_checked === false ? `<span class="muted">not checked (limit)</span>` : rankCell(k.local_finder_rank, k.previous_local_finder_rank)}</td>
       <td class="num">${esc(k.visibility)}</td></tr>`).join("");
   const history = data.history.length > 1
     ? `<div class="history">${data.history.slice().reverse().map((h) => `<span title="${esc(fullTime(h.checked_at))}"><i style="height:${Math.max(4, h.visibility_score)}%"></i><small>${esc(Math.round(h.visibility_score))}</small></span>`).join("")}</div>` : "";
   const top = data.top_businesses.map((b) => `<li class="${b.is_client ? "is-client" : ""}"><span>${esc(b.business_name)}${b.is_client ? ` <span class="tag">you</span>` : ""}</span>
       <span class="muted small">${esc(b.appearances)}× · best #${esc(b.best_rank)}${b.local_pack ? ` · ${esc(b.local_pack)} Local Pack` : ""}</span></li>`).join("");
-  return `${title}<div class="card">${head}<div class="card-body">${runBox}
+  return body(`${live ? `<div class="label" style="margin-top:6px">Previous check</div>` : ""}
     <div class="vis-row">
       <div class="vis-score"><div class="label">Visibility score</div><div class="big">${esc(sm.visibility_score)}<small>/100</small></div>${change}${changeNote}</div>
       <div class="vis-stats">
@@ -664,7 +674,36 @@ function rankingsCard(projectId, data, est) {
       <div class="table-wrap"><table class="rank-table"><thead><tr><th>Keyword</th><th>Local Pack</th><th>Local Finder</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div><div class="label">Businesses appearing most</div><ul class="top-biz">${top}</ul>
         <p class="muted small">Full comparison and gaps in step 4 below.</p></div>
-    </div></div></div>`;
+    </div>`);
+}
+
+// The check running now: one row per keyword, filled in as each search finishes (Local Pack first).
+function liveCheck(live) {
+  const total = live.keywords_total || 1;
+  const pct = Math.round((live.keywords_done / total) * 100);
+  const halfDone = live.keywords.some((k) => !k.pending && k.local_finder_checked === false);
+  let current = live.status === "running" && live.step === "collect_rankings" && !halfDone;
+  const rows = live.keywords.map((k) => {
+    if (k.pending) {
+      const now = current;
+      current = false;  // only the first pending keyword is being searched
+      return `<tr class="pending"><td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div></td>
+        <td colspan="3" class="muted">${now ? `<span class="spinner"></span> searching…` : "waiting"}</td></tr>`;
+    }
+    const finder = k.local_finder_checked === false ? `<span class="spinner"></span> searching…` : rankCell(k.local_finder_rank);
+    return `<tr><td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div></td>
+      <td>${k.local_pack_shown === false ? `<span class="muted">no Local Pack shown</span>` : rankCell(k.local_pack_rank, undefined, k.local_pack_estimated ? ` <span class="tag">est.</span>` : "")}</td>
+      <td>${finder}</td><td class="num">${esc(k.visibility)}</td></tr>`;
+  }).join("");
+  const stage = live.status === "queued" ? "Waiting for the worker…"
+    : live.step === "check_budget" ? "Checking credits…"
+    : live.step === "collect_rankings" ? `${live.keywords_done} of ${live.keywords_total} keywords done`
+    : "Calculating the score…";
+  return `<div class="live-check">
+    <div class="live-head"><b>Live check</b><span class="muted small">${esc(stage)}</span></div>
+    <div class="live-bar"><span style="width:${pct}%"></span></div>
+    <div class="table-wrap"><table class="rank-table"><thead><tr><th>Keyword</th><th>Local Pack</th><th>Local Finder</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="muted small" style="margin:6px 0 0">Results appear keyword by keyword. If a limit is reached, the keywords done so far are kept.</p></div>`;
 }
 
 async function renderRankingSection(project) {
@@ -672,11 +711,20 @@ async function renderRankingSection(project) {
   if (!holder || !project.place_id) return;
   try {
     const data = await api(`/v1/projects/${encodeURIComponent(project.id)}/rankings`);
+    // Keep the cost box exactly as it was on a refresh (no new "Checking credits…" each time).
     const box = holder.querySelector("#run-box");
-    const wasOpen = box && !box.hidden;
-    const mode = box?.querySelector('input[name="rmode"]:checked')?.value || data.latest?.mode;
-    holder.innerHTML = rankingsCard(project.id, data, { mode });  // cost is fetched on "Run"
-    if (wasOpen) showRunCost(project.id);  // keywords changed: show the new cost
+    const kept = box && !box.hidden ? {
+      cost: holder.querySelector("#run-cost")?.innerHTML || "",
+      blocked: holder.querySelector('[data-action="rank-confirm"]')?.disabled,
+      mode: box.querySelector('input[name="rmode"]:checked')?.value,
+    } : null;
+    holder.innerHTML = rankingsCard(project.id, data, { mode: kept?.mode || data.latest?.mode });
+    const fresh = holder.querySelector("#run-box");
+    if (kept && fresh && !data.live) {
+      fresh.hidden = false;
+      holder.querySelector("#run-cost").innerHTML = kept.cost;
+      holder.querySelector('[data-action="rank-confirm"]').disabled = kept.blocked;
+    }
   } catch (err) {
     holder.innerHTML = `<div class="card card-body muted">Could not load rankings: ${esc(err.message)}</div>`;
   }
@@ -803,12 +851,17 @@ async function showRunCost(projectId) {
   cost.innerHTML = `<span class="spinner"></span> Checking credits…`;
   try {
     const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}`);
-    const ok = e.enough;
+    const go = box.querySelector('[data-action="rank-confirm"]');
+    if (!e.can_start) {  // nothing can run: say so once, plainly
+      cost.innerHTML = `<span class="bad-text"><b>Limit reached.</b> ${esc(e.limit_message || "No SerpApi searches left.")}</span>`;
+      go.disabled = true;
+      return;
+    }
     cost.innerHTML = `This check uses <b>${e.searches_needed}</b> SerpApi search${e.searches_needed === 1 ? "" : "es"} for <b>${e.active_keywords}</b> active keyword${e.active_keywords === 1 ? "" : "s"}`
       + (e.searches_from_cache ? ` (${e.searches_from_cache} reused free from the last ${24} h)` : "")
       + ` · <b>${e.credits_left}</b> left${e.renews_on ? ` · renews ${esc(e.renews_on)}` : ""}.`
-      + (ok ? "" : ` <span class="bad-text">Not enough searches left — switch some keywords off or use Maps only.</span>`);
-    box.querySelector('[data-action="rank-confirm"]').disabled = !ok || e.active_keywords === 0;
+      + (e.enough ? "" : ` <span class="warn-text">Only ${e.credits_left} left: it runs keyword by keyword (Local Pack first) and stops at the limit, keeping the keywords done so far.</span>`);
+    go.disabled = e.active_keywords === 0;
   } catch (err) {
     cost.textContent = err.message;
   }
@@ -1182,7 +1235,7 @@ async function renderProject(id, silent = false) {
     ${limitBanner(usage)}
     ${fullBox}
     ${steps}
-    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}
+    <div class="stack">${job?.job_type === "ranking_check" ? "" : auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}
       <section id="sec-audit" class="stack">${g ? `<h2 class="section-title"><span class="step-no">1</span>Listing audit</h2>` : ""}
         ${matchCard(project)}${body}</section>
       <section id="kw-section">${oldKw}</section>

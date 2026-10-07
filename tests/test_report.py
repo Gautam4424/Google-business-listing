@@ -61,7 +61,7 @@ def test_full_audit_never_searches_without_a_passed_credit_check(
     job = _full_audit(client, db, enqueued, project["id"])
     steps = _steps(job)
     assert steps["generate_keywords"]["status"] == "succeeded"
-    assert steps["check_budget"]["status"] == "failed" and "0 left" in steps["check_budget"]["error"]
+    assert steps["check_budget"]["status"] == "failed" and "0 searches left" in steps["check_budget"]["error"]
     assert steps["collect_rankings"]["status"] == "skipped" and searches == []
     assert job.status == "partial_success"  # optional step failed: the audit itself is kept
     assert client.get(f"/v1/projects/{project['id']}/profile").json()["profile"]["review_count"] == 57

@@ -45,7 +45,9 @@ def run_rankings(
 ) -> AuditJob:
     """Check Local Pack + Local Finder positions for every active keyword (brief §2).
 
-    Full mode: 2 SerpApi searches per keyword; maps_only: 1. Refused (422) when not enough searches are left.
+    Full mode: 2 SerpApi searches per keyword; maps_only: 1. Runs keyword by keyword (Local Pack first)
+    and stops at a free-tier limit, keeping the keywords done so far. Refused (422) only when no search
+    can run at all (limit reached), with the reset time.
     """
     project = _project(db, project_id)
     opts = body or RunOptions()
@@ -54,13 +56,8 @@ def run_rankings(
         raise HTTPException(422, "SERPAPI_KEY is not set")
     if est["active_keywords"] == 0:
         raise HTTPException(422, "No active keywords: generate keywords and switch some on first")
-    if not est["enough"]:
-        raise HTTPException(
-            422,
-            f"Not enough SerpApi searches: this check needs {est['searches_needed']}, "
-            f"{est['credits_left']} left (renews {est['renews_on'] or 'next month'}). "
-            "Switch some keywords off or use maps_only mode.",
-        )
+    if not est["can_start"]:
+        raise HTTPException(422, est["limit_message"] or "No SerpApi searches left")
     return start_job(db, "ranking_check", project.id, {"mode": est["mode"], "force": opts.force})
 
 
@@ -69,9 +66,13 @@ def get_rankings(project_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
     """Latest check: visibility score, counts, per-keyword ranks and change vs the previous check; history."""
     project = _project(db, project_id)
     checks = rankings.ranking_checks(db, project)
+    extra = {"live": rankings.live_check(db, project), "limit": rankings.limit_notice(db),
+             "failed": rankings.last_failed_check(db, project, checks[0] if checks else None)}  # fmt: skip
     if not checks:
-        return {"latest": None, "history": [], "top_businesses": []}
+        return {"latest": None, "history": [], "top_businesses": [], **extra}
     latest = rankings.check_report(db, project, checks[0], checks[1] if len(checks) > 1 else None)
+    stop = next((s for s in checks[0].steps or [] if s.get("name") == "collect_rankings"), {})
+    latest["note"] = stop.get("error") if stop.get("status") == "partial" else None
     history = []
     for i, job in enumerate(checks):
         prev = checks[i + 1] if i + 1 < len(checks) else None
@@ -79,4 +80,5 @@ def get_rankings(project_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
         history.append({"job_id": str(job.id), "checked_at": job.created_at.isoformat(),
                         "visibility_score": s["visibility_score"], "keywords": s["keywords"],
                         "in_local_pack": s["in_local_pack"], "status": job.status})  # fmt: skip
-    return {"latest": latest, "history": history, "top_businesses": rankings.top_businesses(db, checks[0])}
+    return {"latest": latest, "history": history, "top_businesses": rankings.top_businesses(db, checks[0]),
+            **extra}  # fmt: skip

@@ -277,6 +277,14 @@ def estimate(db: Session, project: Project, mode: str | None = None, force: bool
         "app_limit_left": app_left,
         "renews_on": account.get("plan_renewal_date"),
         "enough": needed <= available,
+        # fewer left than needed: the check still runs keyword by keyword and stops at the limit
+        "can_start": needed == 0 or available > 0,
+        "limit_message": limit_notice(db)
+        or (
+            f"SerpApi account: 0 searches left (renews {account.get('plan_renewal_date') or 'next month'})"
+            if real_left == 0
+            else None
+        ),
         "serpapi_configured": client is not None,
     }
 
@@ -314,7 +322,13 @@ def run_check(
     locations: dict[str, str | None] = {}
     made = reused = 0
     errors: list[str] = []
+    stopped: str | None = None  # set when a free-tier limit is reached: the remaining searches are skipped
+    done_keywords = 0
+    # Keyword by keyword, Local Pack first: each result is committed (and shown live) as soon as it
+    # arrives, so a limit reached on keyword 2 keeps keyword 1's results.
     for kw in keywords:
+        if stopped:
+            break
         for kind in _kinds(mode):
             loc = None
             if kind == "local_pack" and kw.latitude is None:  # named location only without coordinates
@@ -333,7 +347,11 @@ def run_check(
             )  # fmt: skip
             try:
                 data, from_cache, raw_id = _search(db, client, params, force)
-            except (ProviderError, httpx.HTTPError, quota.QuotaExceeded) as exc:
+            except quota.QuotaExceeded as exc:
+                db.rollback()
+                stopped = str(exc)
+                break  # never keep trying past a limit
+            except (ProviderError, httpx.HTTPError) as exc:
                 db.rollback()
                 run.status, run.error = "failed", f"{type(exc).__name__}: {exc}"
                 db.add(run)
@@ -355,14 +373,69 @@ def run_check(
                 if client_hit and run.client_rank is None:
                     run.client_rank = r["rank"]
             db.commit()
+        else:
+            done_keywords += 1
     return {
         "mode": mode,
         "keywords": len(keywords),
+        "keywords_checked": done_keywords,
         "searches_made": made,
         "searches_from_cache": reused,
         "failed": len(errors),
         "errors": errors[:10],
+        "stopped_by_limit": stopped,
     }
+
+
+def live_check(db: Session, project: Project) -> dict | None:
+    """The ranking check running right now, with the results collected so far (shown live in the UI)."""
+    job = db.scalar(
+        select(AuditJob)
+        .where(AuditJob.project_id == project.id, AuditJob.job_type.in_(RANKING_JOB_TYPES))
+        .where(AuditJob.status.in_(("queued", "running")))
+        .order_by(AuditJob.created_at.desc())
+        .limit(1)
+    )
+    if job is None or (job.job_type == "full_audit" and not (job.params or {}).get("rankings", True)):
+        return None
+    mode = (job.params or {}).get("mode") or get_settings().ranking_mode
+    rows = {r["keyword_id"]: r for r in keyword_rows(db, _runs_for_job(db, job.id), mode)}
+    runs_done = len(_runs_for_job(db, job.id))
+    keywords = active_keywords(db, project)
+    step = next((s["name"] for s in job.steps or [] if s.get("status") == "running"), None)
+    items = []
+    for kw in keywords:
+        pending = {"keyword_id": str(kw.id), "keyword": kw.keyword, "location_name": kw.location_name,
+                   "pending": True}  # fmt: skip
+        items.append(rows.get(str(kw.id)) or pending)
+    return {
+        "job_id": str(job.id),
+        "status": job.status,
+        "step": step,
+        "mode": mode,
+        "keywords_total": len(keywords),
+        "keywords_done": sum(1 for i in items if not i.get("pending")),
+        "searches_done": runs_done,
+        "keywords": items,
+    }
+
+
+def last_failed_check(db: Session, project: Project, latest: AuditJob | None) -> dict | None:
+    """A ranking check that failed after the latest good one (e.g. a limit on the first search)."""
+    job = db.scalar(
+        select(AuditJob)
+        .where(AuditJob.project_id == project.id, AuditJob.job_type == "ranking_check")
+        .order_by(AuditJob.created_at.desc())
+        .limit(1)
+    )
+    if job is None or job.status != "failed" or (latest is not None and job.created_at <= latest.created_at):
+        return None
+    return {"at": job.created_at.isoformat(), "error": job.error}
+
+
+def limit_notice(db: Session) -> str | None:
+    """Why no SerpApi search can run right now (daily/monthly limit), with the reset time."""
+    return quota.get_usage(db, "serpapi_search").blocked_message
 
 
 def _zoom_radius(zoom: int) -> int:
@@ -403,6 +476,8 @@ def keyword_rows(db: Session, runs: list[RankingRun], mode: str) -> list[dict]:
             "local_pack_shown": pack_shown,
             "local_pack_estimated": estimated,
             "local_finder_rank": finder_rank,
+            # False = that search was not made (the check stopped at a limit after the Local Pack)
+            "local_finder_checked": finder is not None,
             "points": points,
             "visibility": round(points / MAX_POINTS * 100, 1),
             "failed": any(k.status != "succeeded" for k in kinds.values()),

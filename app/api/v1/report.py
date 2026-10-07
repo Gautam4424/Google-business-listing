@@ -51,12 +51,11 @@ def run_full_audit(
     if opts.rankings:
         est = rankings.estimate(db, project, opts.mode)
         params["mode"] = est["mode"]
-        if est["active_keywords"] and not est["enough"]:
+        if est["active_keywords"] and not est["can_start"]:
             raise HTTPException(
                 422,
-                f"Not enough SerpApi searches for the ranking check: needs {est['searches_needed']}, "
-                f"{est['credits_left']} left (renews {est['renews_on'] or 'next month'}). "
-                "Switch some keywords off, use maps_only, or run without rankings.",
+                f"{est['limit_message'] or 'No SerpApi searches left'}. Run the full audit without the "
+                "ranking check, or wait for the reset.",
             )
     return start_job(db, "full_audit", project.id, params)
 

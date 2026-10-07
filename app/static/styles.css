@@ -111,7 +111,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .card-head p { margin: 2px 0 0; font-size: 13px; }
 .card-body { padding: 16px 18px 18px; }
 .stack { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
-.cols { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+.cols { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: stretch; }
 
 /* Stat tiles */
 .stats { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -201,7 +201,7 @@ tbody tr.clickable:hover { background: var(--surface-2); }
 .kv { display: grid; grid-template-columns: 88px 1fr; gap: 6px 10px; font-size: 13px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-word; }
-.project .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+.project .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
 
 /* Job detail timeline */
 .timeline { list-style: none; margin: 0; padding: 0; }
@@ -317,7 +317,11 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .run-mode { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
 .run-mode label { display: flex; gap: 6px; align-items: center; font-weight: 500; }
 .run-cost { margin: 0; font-size: 13.5px; }
-.vis-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 24px; align-items: center; margin-bottom: 18px; }
+/* score + history on top, the 7 stat tiles in one even row underneath */
+.vis-row { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "score history" "stats stats"; gap: 16px 24px; align-items: end; margin-bottom: 18px; }
+.vis-score { grid-area: score; }
+.vis-row .history { grid-area: history; justify-self: end; }
+.vis-row .vis-stats { grid-area: stats; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .vis-score .big { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
 .vis-score .big small { font-size: 15px; color: var(--muted); font-weight: 500; }
 .vis-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 10px; }
@@ -331,9 +335,14 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .rank-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .rank-table td, .rank-table th { padding: 8px 10px; font-size: 13px; }
 .top-biz { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; font-size: 13px; }
-.top-biz li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); }
+.top-biz li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; background: var(--surface-2); }
+.top-biz li > span:last-child { white-space: nowrap; text-align: right; }
 .top-biz li.is-client { outline: 2px solid var(--accent); }
-@media (max-width: 1000px) { .rank-grid, .vis-row { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1000px) {
+  .rank-grid { grid-template-columns: minmax(0, 1fr); }
+  .vis-row .vis-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) { .vis-row .vis-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* Services & keywords (Phase 6) */
 .section-title { font-size: 18px; margin: 10px 0 12px; display: flex; align-items: center; gap: 10px; }
@@ -358,13 +367,26 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .menu-list a:hover { background: var(--surface-2); text-decoration: none; }
 .run-check { display: flex; gap: 6px; align-items: center; font-weight: 500; font-size: 13px; }
 .run-check input, .run-mode input { width: auto; margin: 0; }
+/* Rankings: plain notices and the live check */
+.notice { border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; border: 1px solid transparent; }
+.notice.bad { background: var(--bad-soft); border-color: var(--bad); color: var(--text); }
+.notice.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--text); }
+.live-check { border: 1px solid var(--info); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; background: var(--info-soft); }
+.live-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.live-bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
+.live-bar span { display: block; height: 100%; background: var(--info); transition: width .4s ease; }
+.rank-table tr.pending td { color: var(--muted); }
 /* Phase 10: limit banner, delete box, settings page */
 .limit-banner { border-color: var(--warn); background: var(--warn-soft); color: var(--text); }
 .limit-banner ul { margin: 6px 0 0; padding-left: 18px; }
 .danger-box { border-color: var(--bad); background: var(--bad-soft); display: grid; gap: 8px; margin-bottom: 16px; }
 .btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .btn.danger:hover { filter: brightness(1.08); }
-.settings-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.settings-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: stretch; }
+/* Change settings: one full-width box per group, settings in two even columns inside */
+.settings-groups { display: grid; gap: 18px; }
+.setting-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+@media (max-width: 1000px) { .setting-list { grid-template-columns: minmax(0, 1fr); } }
 .mono { font-family: var(--mono); }
 .setting-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px 14px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .setting-row:last-of-type { border-bottom: 0; }

@@ -20,10 +20,12 @@ def check_budget(ctx: StepContext) -> dict:
         raise RuntimeError("SERPAPI_KEY is not set")
     if est["active_keywords"] == 0:
         raise ValueError("No active keywords: generate keywords and switch some on first")
-    if not est["enough"]:
-        raise rankings.NotEnoughCredits(
-            f"Not enough SerpApi searches: this check needs {est['searches_needed']}, "
-            f"{est['credits_left']} left (renews {est['renews_on'] or 'next month'})"
+    if not est["can_start"]:
+        raise rankings.NotEnoughCredits(est["limit_message"] or "No SerpApi searches left")
+    if not est["enough"]:  # still runs: keyword by keyword until the limit, results so far are kept
+        est["note"] = (
+            f"Only {est['credits_left']} of {est['searches_needed']} searches left: "
+            "the check stops at the limit and keeps the keywords done so far"
         )
     return est
 
@@ -33,10 +35,16 @@ def collect_rankings(ctx: StepContext) -> dict:
     result = rankings.run_check(
         ctx.db, _project(ctx), ctx.job, params.get("mode"), params.get("force", False)
     )
-    if result["failed"] and result["failed"] == result["keywords"] * (
-        1 if result["mode"] == "maps_only" else 2
-    ):
-        raise RuntimeError("Every search failed: " + "; ".join(result["errors"][:3]))
+    saved = result["searches_made"] + result["searches_from_cache"]
+    if not saved:
+        reason = result["stopped_by_limit"] or "; ".join(result["errors"][:3])
+        raise RuntimeError(f"No ranking data: {reason}")
+    if result["stopped_by_limit"]:
+        raise StepPartial(
+            f"Limit reached after {result['keywords_checked']} of {result['keywords']} keywords; "
+            f"their results are saved. {result['stopped_by_limit']}",
+            result,
+        )
     if result["failed"]:
         raise StepPartial(f"{result['failed']} search(es) failed; the rest were saved", result)
     return result
