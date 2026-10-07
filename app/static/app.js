@@ -436,6 +436,8 @@ function keywordsCard(projectId, data) {
       <form class="inline-form" data-form="add-keyword" data-project="${esc(projectId)}">
         <input name="keyword" placeholder="Add your own keyword, e.g. 24 hour plumber sydney" minlength="3" required>
         <button class="btn sm">Add</button></form>
+      ${pv.active ? `<div class="next-step"><span class="muted">Happy with the <b>${pv.active}</b> keywords that are On?</span>
+        <button class="btn primary sm" data-action="goto-rank" data-project="${esc(projectId)}">Next: check rankings ↓</button></div>` : ""}
     </div></div>`;
 }
 
@@ -447,15 +449,25 @@ async function renderKeywordSection(project) {
       api(`/v1/projects/${encodeURIComponent(project.id)}/services`),
       api(`/v1/projects/${encodeURIComponent(project.id)}/keywords`),
     ]);
-    holder.innerHTML = `<h2 class="section-title">Services & keywords</h2>
+    // keep "N more services" etc. open across refreshes
+    const open = new Set([...holder.querySelectorAll("details[open] > summary")].map((s) => s.textContent));
+    holder.innerHTML = `<h2 class="section-title"><span class="step-no">2</span>Choose services & keywords</h2>
       <div class="kw-grid"><div class="stack">${servicesCard(project.id, services)}${areasCard(project.id, project.service_areas || [])}</div>
       ${keywordsCard(project.id, keywords)}</div>`;
+    holder.querySelectorAll("details > summary").forEach((s) => { if (open.has(s.textContent)) s.parentElement.open = true; });
   } catch (err) {
     holder.innerHTML = `<div class="card card-body muted">Could not load services & keywords: ${esc(err.message)}</div>`;
   }
 }
 
-async function kwAction(fn, okMessage) {
+// Redraws only the keyword + ranking sections; the old content stays until the new one replaces it,
+// so the page height (and the scroll position) does not jump.
+async function refreshProjectSections(projectId) {
+  const project = await api(`/v1/projects/${encodeURIComponent(projectId)}`);
+  await Promise.all([renderKeywordSection(project), renderRankingSection(project)]);
+}
+
+async function kwAction(fn, okMessage, { full = false } = {}) {
   try {
     const result = await fn();
     if (okMessage) toast(okMessage);
@@ -464,8 +476,10 @@ async function kwAction(fn, okMessage) {
     toast(err.message, "bad");
   } finally {
     const [section, id] = location.hash.slice(1).split("/");
-    if (section === "projects" && id) renderProject(id, true);  // refresh in place, keep the scroll position
-    else route();
+    if (section === "projects" && id) {
+      if (full) renderProject(id, true);
+      else refreshProjectSections(id).catch(() => renderProject(id, true));
+    } else route();
   }
 }
 
@@ -495,12 +509,13 @@ function rankingsCard(projectId, data, est) {
       <p class="run-cost" id="run-cost"></p>
       <div class="toolbar"><button class="btn primary sm" data-action="rank-confirm" data-project="${esc(projectId)}">Run now</button>
         <button class="btn ghost sm" data-action="rank-cancel">Cancel</button></div></div>`;
+  const title = `<h2 class="section-title"><span class="step-no">3</span>Check rankings</h2>`;
   const head = `<div class="card-head"><div><h2>Rankings</h2>
       <p class="muted">${latest ? `Last checked ${esc(timeAgo(latest.checked_at))} · ${latest.mode === "maps_only" ? "Maps only (Local Pack estimated)" : "Local Pack + Local Finder"}` : "Where the business appears on Google for its active keywords."}</p></div>
       <button class="btn ${latest ? "" : "primary"} sm" data-action="rank-run" data-project="${esc(projectId)}">Run ranking check</button></div>`;
   if (!latest) {
-    return `<div class="card">${head}<div class="card-body">${runBox}
-      <p class="muted">No ranking check yet. Each check uses SerpApi searches only for keywords that are <b>On</b> (see Services & keywords below).</p></div></div>`;
+    return `${title}<div class="card">${head}<div class="card-body">${runBox}
+      <p class="muted">No ranking check yet. Each check uses SerpApi searches only for keywords that are <b>On</b> in step 2 above.</p></div></div>`;
   }
   const sm = latest.summary;
   const changeNote = sm.compared_keywords != null && sm.compared_keywords < sm.keywords
@@ -516,7 +531,7 @@ function rankingsCard(projectId, data, est) {
     ? `<div class="history">${data.history.slice().reverse().map((h) => `<span title="${esc(fullTime(h.checked_at))}"><i style="height:${Math.max(4, h.visibility_score)}%"></i><small>${esc(Math.round(h.visibility_score))}</small></span>`).join("")}</div>` : "";
   const top = data.top_businesses.map((b) => `<li class="${b.is_client ? "is-client" : ""}"><span>${esc(b.business_name)}${b.is_client ? ` <span class="tag">you</span>` : ""}</span>
       <span class="muted small">${esc(b.appearances)}× · best #${esc(b.best_rank)}${b.local_pack ? ` · ${esc(b.local_pack)} Local Pack` : ""}</span></li>`).join("");
-  return `<div class="card">${head}<div class="card-body">${runBox}
+  return `${title}<div class="card">${head}<div class="card-body">${runBox}
     <div class="vis-row">
       <div class="vis-score"><div class="label">Visibility score</div><div class="big">${esc(sm.visibility_score)}<small>/100</small></div>${change}${changeNote}</div>
       <div class="vis-stats">
@@ -541,7 +556,11 @@ async function renderRankingSection(project) {
   if (!holder || !project.place_id) return;
   try {
     const data = await api(`/v1/projects/${encodeURIComponent(project.id)}/rankings`);
-    holder.innerHTML = rankingsCard(project.id, data, { mode: data.latest?.mode });  // cost is fetched on "Run"
+    const box = holder.querySelector("#run-box");
+    const wasOpen = box && !box.hidden;
+    const mode = box?.querySelector('input[name="rmode"]:checked')?.value || data.latest?.mode;
+    holder.innerHTML = rankingsCard(project.id, data, { mode });  // cost is fetched on "Run"
+    if (wasOpen) showRunCost(project.id);  // keywords changed: show the new cost
   } catch (err) {
     holder.innerHTML = `<div class="card card-body muted">Could not load rankings: ${esc(err.message)}</div>`;
   }
@@ -886,6 +905,16 @@ async function renderProject(id, silent = false) {
     </div>`;
   }
 
+  // On a silent refresh keep the sections' current content as placeholders and restore the scroll,
+  // so the page never shrinks for a moment and jumps to the top.
+  const keepY = silent ? window.scrollY : null;
+  const oldKw = silent ? document.getElementById("kw-section")?.innerHTML || "" : "";
+  const oldRank = silent ? document.getElementById("rank-section")?.innerHTML || "" : "";
+  const steps = linked
+    ? `<nav class="stepper" aria-label="Steps">
+        <button data-action="jump" data-target="sec-audit"><span class="step-no">1</span>Listing audit</button>
+        <button data-action="jump" data-target="kw-section"><span class="step-no">2</span>Services & keywords</button>
+        <button data-action="jump" data-target="rank-section"><span class="step-no">3</span>Rankings</button></nav>` : "";
   view.innerHTML = `
     <a class="crumb" href="#projects">← Projects</a>
     <div class="page-head"><div>
@@ -894,11 +923,14 @@ async function renderProject(id, silent = false) {
         ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
         <span>${esc(project.name)}</span></p></div>
       <div class="toolbar">${websiteBtn}${auditBtn}</div></div>
-    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}${matchCard(project)}
-      <section id="rank-section"></section>${body}
-      <section id="kw-section"></section></div>`;
-  renderRankingSection(project);
-  renderKeywordSection(project);
+    ${steps}
+    <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}
+      <section id="sec-audit" class="stack">${g ? `<h2 class="section-title"><span class="step-no">1</span>Listing audit</h2>` : ""}
+        ${matchCard(project)}${body}</section>
+      <section id="kw-section">${oldKw}</section>
+      <section id="rank-section">${oldRank}</section></div>`;
+  if (keepY != null) window.scrollTo(0, keepY);
+  await Promise.all([renderKeywordSection(project), renderRankingSection(project)]);
 
   if (running) schedule(() => renderProject(id, true), 2000);
 }
@@ -1183,6 +1215,13 @@ document.addEventListener("click", (e) => {
   if (action?.dataset.action === "discover") return startDiscovery(action.dataset.project, action);
   if (action?.dataset.action === "reanalyse") return startReviewAnalysis(action.dataset.project, action);
   const pid = action?.dataset.project ? encodeURIComponent(action.dataset.project) : null;
+  if (action?.dataset.action === "jump") {
+    return document.getElementById(action.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  if (action?.dataset.action === "goto-rank") {
+    document.getElementById("rank-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return showRunCost(action.dataset.project);
+  }
   if (action?.dataset.action === "rank-run") return showRunCost(action.dataset.project);
   if (action?.dataset.action === "rank-cancel") {
     document.getElementById("run-box").hidden = true;
@@ -1193,7 +1232,7 @@ document.addEventListener("click", (e) => {
     action.disabled = true;
     action.innerHTML = `<span class="spinner"></span>Starting…`;
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
-      "Ranking check started");
+      "Ranking check started", { full: true });  // full redraw shows the job progress
   }
   if (action?.dataset.action === "svc-refresh") {
     return kwAction(() => api(`/v1/projects/${pid}/services/refresh`, { method: "POST" }), "Services rebuilt from the latest audit");

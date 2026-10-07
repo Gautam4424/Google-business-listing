@@ -336,7 +336,13 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 @media (max-width: 1000px) { .rank-grid, .vis-row { grid-template-columns: minmax(0, 1fr); } }
 
 /* Services & keywords (Phase 6) */
-.section-title { font-size: 18px; margin: 10px 0 12px; }
+.section-title { font-size: 18px; margin: 10px 0 12px; display: flex; align-items: center; gap: 10px; }
+.step-no { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--surface); font-size: 13px; font-weight: 700; flex: none; }
+.stepper { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; margin-bottom: 8px; background: var(--bg); }
+.stepper button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.stepper button:hover { border-color: var(--accent); }
+#sec-audit, #kw-section, #rank-section { scroll-margin-top: 60px; }
+.next-step { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); }
 .kw-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: start; }
 .svc-list { display: grid; gap: 2px; }
 .svc-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; font-weight: 500; cursor: pointer; }
