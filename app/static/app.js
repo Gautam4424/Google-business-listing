@@ -194,8 +194,61 @@ function usageMeters(usage) {
         <span class="nums">${fmtNum(u.month_count)} / ${fmtNum(u.monthly_limit)}</span></div>
       <div class="bar ${level}"><span style="width:${pct.toFixed(1)}%"></span></div>
       <div class="meter-sub">${esc(info.use)}${daily} · <b>${fmtNum(u.remaining)}</b> left</div>
+      ${u.blocked ? `<div class="meter-sub bad-text">${esc(u.blocked)}</div>` : ""}
     </div>`;
   }).join("")}</div>`;
+}
+
+/* ---------- Settings (read-only) ---------- */
+
+async function renderSettings() {
+  const nav = navCount;
+  view.innerHTML = `<div class="page-head"><div><h1>Settings</h1></div></div><div class="skeleton" style="height:320px"></div>`;
+  const s = await api("/v1/settings");
+  if (nav !== navCount) return;
+  const yes = (v) => (v ? "On" : "Off");
+  const key = (name, v) => `<tr><td class="mono">${esc(name)}</td><td>${v ? `<span class="ok-text">✓ set</span> <span class="mono muted">${esc(v)}</span>` : `<span class="bad-text">not set</span>`}</td></tr>`;
+  const limits = s.limits.map((l) => `<tr><td>${esc(l.label)}<div class="muted small mono">${esc(l.daily_setting)} · ${esc(l.monthly_setting)}</div>
+      ${l.blocked ? `<div class="bad-text small">${esc(l.blocked)}</div>` : ""}</td>
+    <td class="num">${l.daily_limit ? `${fmtNum(l.day_count)} / ${fmtNum(l.daily_limit)}` : `${fmtNum(l.day_count)} <span class="muted">(no cap)</span>`}</td>
+    <td class="num">${fmtNum(l.month_count)} / ${fmtNum(l.monthly_limit)}</td><td class="num"><b>${fmtNum(l.remaining)}</b></td></tr>`).join("");
+  const features = Object.entries(s.features).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td>${typeof v === "boolean" ? yes(v) : esc(v)}</td></tr>`).join("");
+  const lc = s.retention.last_cleanup;
+  const worker = s.worker_online === true ? `<span class="ok-text">● online</span>` : s.worker_online === false ? `<span class="bad-text">● not responding</span>` : `<span class="bad-text">● job queue unreachable</span>`;
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Settings</h1>
+      <p class="muted">Read-only. To change a value, edit <span class="mono">.env</span> on the server and run <span class="mono">docker compose up -d</span>.</p></div></div>
+    <div class="settings-grid">
+      <div class="card"><div class="card-head"><h2>App</h2></div><div class="card-body"><table class="kv-table">
+        <tr><td>Access</td><td>${esc(s.app.access)}</td></tr>
+        <tr><td>Worker</td><td>${worker}</td></tr>
+        <tr><td class="mono">DEBUG</td><td>${yes(s.app.debug)}</td></tr>
+        ${key("GOOGLE_API_KEY", s.keys.GOOGLE_API_KEY)}${key("SERPAPI_KEY", s.keys.SERPAPI_KEY)}
+      </table></div></div>
+      <div class="card"><div class="card-head"><div><h2>30-day clean-up</h2><p class="muted">Google's terms: its content is kept for at most ${esc(s.retention.GOOGLE_DATA_TTL_DAYS)} days.</p></div></div><div class="card-body"><table class="kv-table">
+        <tr><td>Runs</td><td>Every night at ${String(s.retention.CLEANUP_HOUR_UTC).padStart(2, "0")}:00 UTC</td></tr>
+        <tr><td>Last run</td><td>${lc ? `${esc(timeAgo(lc.at))} · ${badge(lc.status)}` : "Not yet"}</td></tr>
+        ${lc?.result ? `<tr><td>Removed</td><td>${esc(lc.result.raw_responses_deleted)} raw responses · ${esc(lc.result.review_texts_removed)} review texts · ${esc(lc.result.old_profile_snapshots_trimmed)} old profile snapshots</td></tr>` : ""}
+      </table></div></div>
+    </div>
+    <div class="card" style="margin-top:18px"><div class="card-head"><div><h2>Free-tier limits</h2>
+        <p class="muted">Daily limits reset at 00:00 UTC (${esc(timeUntil(s.resets.daily))}); monthly on ${esc(new Date(s.resets.monthly).toLocaleDateString())}.</p></div></div>
+      <div class="card-body"><div class="table-wrap"><table><thead><tr><th>API</th><th class="num">Today</th><th class="num">This month</th><th class="num">Left</th></tr></thead><tbody>${limits}</tbody></table></div></div></div>
+    <div class="card" style="margin-top:18px"><div class="card-head"><h2>Features</h2></div>
+      <div class="card-body"><div class="table-wrap"><table class="kv-table">${features}</table></div></div></div>`;
+}
+
+function timeUntil(iso) {
+  const m = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60000));
+  return m >= 60 ? `in ${Math.floor(m / 60)} h ${m % 60} min` : `in ${m} min`;
+}
+
+// A reached free-tier limit, in plain words with its reset time (shown on Overview and project pages).
+function limitBanner(usage) {
+  const blocked = (usage || []).filter((u) => u.blocked);
+  if (!blocked.length) return "";
+  return `<div class="card card-body limit-banner"><b>Free-tier limit reached</b>
+    <ul>${blocked.map((u) => `<li>${esc(u.blocked)}</li>`).join("")}</ul></div>`;
 }
 
 async function renderOverview(silent = false) {
@@ -221,7 +274,7 @@ async function renderOverview(silent = false) {
   view.innerHTML = `
     <div class="page-head"><div><h1>Overview</h1><p class="muted">System status, free-tier usage and recent activity.</p></div>
       <button class="btn primary" data-action="diagnostic">Run diagnostic</button></div>
-    <div class="stack">
+    <div class="stack">${limitBanner(usage)}
       <div class="stats">
         <div class="card stat"><div class="label">System</div>
           <div class="value" style="color:var(--${health ? "ok" : "bad"})">${health ? "Online" : "Offline"}</div>
@@ -915,9 +968,12 @@ async function startAudit(projectId, button, options = null) {
 async function renderProject(id, silent = false) {
   const nav = navCount;
   if (!silent) view.innerHTML = `<a class="crumb" href="#projects">← Projects</a><div class="skeleton" style="height:320px"></div>`;
-  let data;
+  let data, usage;
   try {
-    data = await api(`/v1/projects/${encodeURIComponent(id)}/profile`);
+    [data, usage] = await Promise.all([
+      api(`/v1/projects/${encodeURIComponent(id)}/profile`),
+      api("/v1/usage").catch(() => []),
+    ]);
   } catch (err) {
     if (nav !== navCount) return;
     view.innerHTML = `<a class="crumb" href="#projects">← Projects</a><div class="card empty"><h3>Project not found</h3><p>${esc(err.message)}</p></div>`;
@@ -1056,7 +1112,14 @@ async function renderProject(id, silent = false) {
       <p class="muted head-meta">${g?.primary_category ? `<span>${esc(g.primary_category)}</span>` : ""}
         ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
         <span>${esc(project.name)}</span></p></div>
-      <div class="toolbar">${reportMenu}${websiteBtn}${auditBtn}${fullBtn}</div></div>
+      <div class="toolbar">${reportMenu}${websiteBtn}${auditBtn}${fullBtn}
+        <button class="icon-btn" data-action="delete-open" title="Delete this project" aria-label="Delete project" ${running ? "disabled" : ""}>🗑</button></div></div>
+    <div class="card card-body danger-box" id="delete-box" hidden>
+      <b>Delete “${esc(project.name)}”?</b>
+      <p class="muted" style="margin:0">This removes the project and everything collected for it: audits, reviews, keywords, rankings, competitors, gaps and its jobs. It cannot be undone. API usage counters are kept.</p>
+      <div class="toolbar"><button class="btn danger sm" data-action="delete-confirm" data-project="${esc(project.id)}">Delete project</button>
+        <button class="btn ghost sm" data-action="delete-cancel">Cancel</button></div></div>
+    ${limitBanner(usage)}
     ${fullBox}
     ${steps}
     <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}
@@ -1370,6 +1433,21 @@ document.addEventListener("click", (e) => {
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
+  if (action?.dataset.action === "delete-open") {
+    document.getElementById("delete-box").hidden = false;
+    return;
+  }
+  if (action?.dataset.action === "delete-cancel") {
+    document.getElementById("delete-box").hidden = true;
+    return;
+  }
+  if (action?.dataset.action === "delete-confirm") {
+    action.disabled = true;
+    action.innerHTML = `<span class="spinner"></span>Deleting…`;
+    return api(`/v1/projects/${pid}`, { method: "DELETE" })
+      .then((r) => { toast(`Project “${r.deleted}” deleted`); location.hash = "#projects"; })
+      .catch((err) => { toast(err.message, "bad"); action.disabled = false; action.textContent = "Delete project"; });
+  }
   if (action?.dataset.action === "full-open") return showFullCost(action.dataset.project);
   if (action?.dataset.action === "full-cancel") {
     document.getElementById("full-box").hidden = true;
@@ -1431,6 +1509,7 @@ async function route() {
     else if (section === "projects") await renderProjects();
     else if (section === "jobs" && id) await renderJob(id);
     else if (section === "jobs") await renderJobs(params);
+    else if (section === "settings") await renderSettings();
     else await renderOverview();
   } catch (err) {
     view.innerHTML = `<div class="card empty"><h3>Could not load this page</h3><p>${esc(err.message)}</p>

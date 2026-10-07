@@ -56,7 +56,7 @@ def match_business(ctx: StepContext) -> dict:
     if decision.status == "not_found":
         raise LookupError(decision.reason or "Business not found on Google")
     if decision.status == "auto_selected" and ctx.job.params.get("then_audit"):
-        audit = start_job(ctx.db, "gbp_audit", project.id, {})
+        audit = start_job(ctx.db, "gbp_audit", project.id, {}, parent=ctx.job)
         result["audit_job_id"] = str(audit.id)
     return result
 

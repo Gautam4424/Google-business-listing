@@ -2,7 +2,7 @@
 
 import httpx
 
-from app.providers.base import ProviderError
+from app.providers.base import ProviderError, send_with_retry
 
 BASE_URL = "https://places.googleapis.com/v1"
 PROVIDER = "google_places"
@@ -19,11 +19,16 @@ class GooglePlacesClient:
 
     def search_text(self, text_query: str, field_mask: str, page_size: int = 5, **extra) -> dict:
         body = {"textQuery": text_query, "pageSize": page_size, **extra}
-        response = self._client.post("/places:searchText", json=body, headers=self._headers(field_mask))
+        response = send_with_retry(
+            PROVIDER,
+            lambda: self._client.post("/places:searchText", json=body, headers=self._headers(field_mask)),
+        )
         return self._parse(response)
 
     def place_details(self, place_id: str, field_mask: str) -> dict:
-        response = self._client.get(f"/places/{place_id}", headers=self._headers(field_mask))
+        response = send_with_retry(
+            PROVIDER, lambda: self._client.get(f"/places/{place_id}", headers=self._headers(field_mask))
+        )
         return self._parse(response)
 
     @staticmethod

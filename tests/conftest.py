@@ -8,6 +8,8 @@ os.environ["GOOGLE_API_KEY"] = "test-google-key"
 os.environ["SERPAPI_KEY"] = "test-serpapi-key"
 os.environ["QUOTA_PLACES_TEXTSEARCH_MONTHLY"] = "5"
 os.environ["QUOTA_PLACES_TEXTSEARCH_DAILY"] = "3"
+os.environ["PROVIDER_RETRY_DELAY_SECONDS"] = "0"  # retries happen, without waiting
+os.environ["DEBUG"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -15,6 +17,17 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.core.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    """Any request that is not mocked fails loudly instead of reaching Google/SerpApi/websites."""
+    import httpx
+
+    def refuse(self, request):
+        raise httpx.ConnectError(f"Tests must not call real services ({request.url.host})", request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
 
 
 @pytest.fixture(autouse=True)

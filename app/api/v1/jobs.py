@@ -30,6 +30,8 @@ def create_job(body: JobCreate, db: Session = Depends(get_db)) -> AuditJob:
 def start_job(db: Session, job_type: str, project_id: uuid.UUID | None, params: dict) -> AuditJob:
     try:
         return jobs_service.start_job(db, job_type, project_id, params)
+    except jobs_service.JobAlreadyRunning as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except jobs_service.QueueUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Job queue unavailable") from exc
 

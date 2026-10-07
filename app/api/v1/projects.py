@@ -12,7 +12,9 @@ from app.schemas.discovery import DiscoverOptions, DiscoveryOut, SelectCandidate
 from app.schemas.job import JobOut
 from app.schemas.profile import AuditOptions, GbpProfileOut, OfferingOut, ProfileOut, ReviewOut, WebsiteOut
 from app.schemas.project import ProjectCreate, ProjectOut
+from app.services import project_delete
 from app.services.discovery import link_place, select_candidate
+from app.services.jobs import JobAlreadyRunning, active_job
 from app.services.nap import Nap, compare_nap
 from app.services.review_analysis import review_summary, tags_by_review
 from app.services.website_discovery import latest_website_profile
@@ -60,6 +62,20 @@ def _get_project(db: Session, project_id: uuid.UUID) -> Project:
 @router.get("/{project_id}", response_model=ProjectOut)
 def get_project(project_id: uuid.UUID, db: Session = Depends(get_db)) -> ProjectOut:
     return ProjectOut.from_model(_get_project(db, project_id))
+
+
+@router.delete("/{project_id}")
+def delete_project(project_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+    """Delete the project and all its data (audits, reviews, keywords, rankings, competitors, gaps, jobs).
+
+    Refused (409) while one of its jobs is queued or running. API usage counters are kept.
+    """
+    project = _get_project(db, project_id)
+    running = active_job(db, project.id)
+    if running is not None:
+        raise HTTPException(409, str(JobAlreadyRunning(running)).replace("try again", "delete the project"))
+    name = project.name
+    return {"deleted": name, **project_delete.delete_project(db, project)}
 
 
 @router.post("/{project_id}/gbp-audit", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)

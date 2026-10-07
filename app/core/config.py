@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: str = "development"
+    # false: INFO logs and short error messages; true: DEBUG logs (never shows API keys)
+    debug: bool = False
     database_url: str = "sqlite:///./local.db"
     redis_url: str = "redis://localhost:6379/0"
 
@@ -25,7 +27,7 @@ class Settings(BaseSettings):
     quota_geocoding_monthly: int = 9000
     quota_geocoding_daily: int = 0
     quota_serpapi_monthly: int = 240
-    quota_serpapi_daily: int = 0
+    quota_serpapi_daily: int = 40  # one busy day cannot use up the month (a full 10-keyword check = 20)
     # Top 10 reviews via SerpApi costs 2 credits per audit; off by default (Google's 5 reviews are free).
     serpapi_reviews_enabled: bool = False
     # Max active keywords per project (each keyword = 2 SerpApi searches per ranking run).
@@ -43,7 +45,13 @@ class Settings(BaseSettings):
     # competitor lookups stop when only this many Place Details are left (kept for client audits)
     competitor_details_reserve: int = 10
 
-    google_data_ttl_days: int = 30
+    google_data_ttl_days: int = 30  # Google content older than this is removed by the nightly clean-up
+    cleanup_hour_utc: int = 3  # when the nightly clean-up runs
+    # A temporary provider error (timeout, 429, 5xx) is retried this many times after a short wait.
+    provider_retries: int = 1
+    provider_retry_delay_seconds: float = 2.0
+    # A queued/running job older than this is treated as interrupted (worker restart, lost queue).
+    job_stale_minutes: int = 120
     http_timeout_seconds: float = 20.0
     serpapi_timeout_seconds: float = 120.0  # Google searches through SerpApi can take 30-60 s
     nominatim_user_agent: str = "local-seo-audit/0.1"

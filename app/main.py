@@ -8,17 +8,23 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.v1 import router as v1_router
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.workers import jobs as _jobs  # noqa: F401  (registers pipelines)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-# httpx logs full request URLs at INFO, and SerpApi URLs contain the API key.
+DEBUG = get_settings().debug
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+# httpx logs full request URLs at INFO/DEBUG, and SerpApi URLs contain the API key: never below WARNING.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = FastAPI(
     title="Local SEO Audit API",
     version="0.1.0",
-    description="GBP audit, local rank tracking and competitor gap analysis.",
+    description="GBP audit, local rank tracking and competitor gap analysis. In-house use: no login.",
+    debug=DEBUG,
 )
 app.include_router(v1_router)
 app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui")

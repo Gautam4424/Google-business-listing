@@ -358,6 +358,18 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .menu-list a:hover { background: var(--surface-2); text-decoration: none; }
 .run-check { display: flex; gap: 6px; align-items: center; font-weight: 500; font-size: 13px; }
 .run-check input, .run-mode input { width: auto; margin: 0; }
+/* Phase 10: limit banner, delete box, settings page */
+.limit-banner { border-color: var(--warn); background: var(--warn-soft); color: var(--text); }
+.limit-banner ul { margin: 6px 0 0; padding-left: 18px; }
+.danger-box { border-color: var(--bad); background: var(--bad-soft); display: grid; gap: 8px; margin-bottom: 16px; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.danger:hover { filter: brightness(1.08); }
+.settings-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.mono { font-family: var(--mono); }
+.kv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kv-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; }
+.kv-table tr:last-child td { border-bottom: 0; }
+.kv-table td:first-child { color: var(--muted); width: 42%; }
 /* Phones: the top bar is sticky already, so the step bar becomes one scrollable row in the page flow */
 @media (max-width: 760px) {
   .stepper { position: static; flex-wrap: nowrap; overflow-x: auto; }

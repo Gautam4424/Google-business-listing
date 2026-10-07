@@ -32,3 +32,5 @@ class UsageOut(BaseModel):
     month_count: int
     monthly_limit: int
     remaining: int
+    label: str | None = None
+    blocked: str | None = Field(None, description="Why it cannot be used right now, with the reset time")

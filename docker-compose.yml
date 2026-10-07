@@ -1,8 +1,16 @@
 name: local-seo-audit
 
+# Logs are capped (3 files x 10 MB per container) so they never fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 x-app: &app
   build: .
   image: local-seo-audit:dev
+  logging: *logging
   env_file: .env
   environment:
     DATABASE_URL: postgresql+psycopg://seo:${POSTGRES_PASSWORD}@postgres:5432/seo
@@ -18,8 +26,8 @@ services:
   api:
     <<: *app
     ports:
-      # Default: only reachable from the server itself (no login yet). Use an SSH tunnel or a
-      # reverse proxy with a password; set APP_BIND=0.0.0.0 only behind a firewall/VPN.
+      # In-house app without login: only reachable from the server itself (default). Use an SSH tunnel
+      # to open it from your computer; set APP_BIND=0.0.0.0 only behind a firewall/VPN.
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -29,10 +37,13 @@ services:
 
   worker:
     <<: *app
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    # -B: also runs the schedule (nightly 30-day clean-up, interrupted-job check every 30 min)
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-B", "-s", "/tmp/celerybeat-schedule",
+              "--loglevel=info", "--concurrency=2"]
 
   postgres:
     image: postgres:16-alpine
+    logging: *logging
     environment:
       POSTGRES_USER: seo
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -48,6 +59,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    logging: *logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

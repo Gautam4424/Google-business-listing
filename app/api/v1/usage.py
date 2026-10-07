@@ -3,14 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.schemas.job import UsageOut
-from app.services.quota import usage_report
+from app.services.quota import SKU_LABEL, usage_report
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
 
 @router.get("", response_model=list[UsageOut])
 def get_usage(db: Session = Depends(get_db)) -> list[UsageOut]:
-    """Free-tier usage this month per billable SKU."""
+    """Free-tier usage this month per billable SKU; `blocked` explains a reached limit and when it resets."""
     return [
         UsageOut(
             sku=u.sku,
@@ -19,6 +19,8 @@ def get_usage(db: Session = Depends(get_db)) -> list[UsageOut]:
             month_count=u.month_count,
             monthly_limit=u.monthly_limit,
             remaining=u.remaining,
+            label=SKU_LABEL.get(u.sku),
+            blocked=u.blocked_message,
         )
         for u in usage_report(db)
     ]

@@ -5,8 +5,13 @@ Audits a local business's **Google Business Profile**:
 - **Website check:** the business's own website compared with Google (name, address, phone, map location), plus its social links and services
 - **Reviews:** sentiment, plus what customers praise and complain about
 - **Correct listing:** confirms the right Google listing with a confidence score
+- **Keywords and rankings:** Local Pack and Google Maps positions, with a visibility score
+- **Competitors and gaps:** who keeps showing up, and what to review (categories, services, reviews)
+- **Reports:** HTML, PDF and CSV
 
-Everything runs in **Docker** on one **Ubuntu** server, using the **free tiers** of Google and SerpApi. Built-in limits stop the app before any free allowance is used up.
+It is an **in-house tool: there is no login screen**. It only opens on the server itself (reach it through an SSH tunnel).
+
+Everything runs in **Docker** on one **Ubuntu** server, using the **free tiers** of Google and SerpApi. Built-in limits stop the app before any free allowance is used up. What the app does, in detail: [docs/PRODUCT.md](docs/PRODUCT.md).
 
 ---
 
@@ -140,7 +145,11 @@ The settings in `.env`:
 | `COMPETITOR_DETAILS` | no | `true` (default): 1 free Google Place Details per competitor (cached 7 days) for its review sample; `false`: search-result data only |
 | `COMPETITOR_DETAILS_RESERVE` | no | Competitor lookups stop when only this many Place Details are left (default `10`), so client audits can still run |
 | `SERPAPI_REVIEWS_ENABLED` | no | `false` (default) uses Google's 5 free reviews; `true` uses 2 SerpApi credits per audit for the top 10 |
-| `QUOTA_*` | no | Free-tier safety limits. The app refuses calls above these. |
+| `QUOTA_*` | no | Free-tier safety limits. The app refuses calls above these. Daily: Google profile lookups `100`, SerpApi `40` (a full 10-keyword check uses 20). Keep the monthly ones as they are to stay free. |
+| `DEBUG` | no | `false` (default): normal logs and short error messages. `true`: detailed logs for troubleshooting (API keys are never logged). |
+| `GOOGLE_DATA_TTL_DAYS` / `CLEANUP_HOUR_UTC` | no | Nightly clean-up of Google content older than `30` days, at `03:00` UTC (Google's terms) |
+| `PROVIDER_RETRIES` | no | A temporary Google/SerpApi error is retried this many times (default `1`); failed calls are never charged |
+| `JOB_STALE_MINUTES` | no | A job stuck for this long (default `120`) is marked "interrupted" so the project is free again |
 
 > Never commit `.env` or share it; it holds your keys. It is already listed in `.gitignore`.
 
@@ -170,57 +179,33 @@ curl -s http://127.0.0.1:8000/health   # {"status":"ok","database":"ok"}
 | `postgres` | Database (data in the Docker volume `local-seo-audit_pgdata`) |
 | `redis` | Job queue |
 
-All containers restart automatically after a crash or a server reboot.
+All containers restart automatically after a crash or a server reboot. Make sure Docker itself starts at boot (once):
+```bash
+sudo systemctl enable docker
+```
+If the server restarts in the middle of an audit, that job is marked **"Interrupted … please run it again"** instead of staying "running" forever.
+
+The `worker` also runs two scheduled tasks: the **nightly 30-day clean-up** (03:00 UTC) and a check for stuck jobs every 30 minutes. Logs are capped at 30 MB per container, so they never fill the disk.
 
 ---
 
 ## 7. Open the web app
 
-The app has **no login yet**, so by default it only listens on `127.0.0.1` (the server itself). Choose one of these ways to reach it:
+This is an **in-house tool with no login screen**, so it only listens on `127.0.0.1` (the server itself). That is the default; keep it. Anyone who can open the app can use your API credits.
 
-### A. SSH tunnel (private, simplest; for one person)
+### Open it from your computer: SSH tunnel
 
 From **your own computer**:
 ```bash
 ssh -L 8000:127.0.0.1:8000 youruser@YOUR_SERVER_IP
 ```
-Keep that window open and browse to **http://localhost:8000**.
+Keep that window open and browse to **http://localhost:8000**. Each colleague who needs the app uses the same command with their own SSH login.
 
-### B. Domain + HTTPS + password with Caddy (recommended for a team)
+### Only if the server is on a private office network or VPN
 
-1. Point a DNS **A record** (for example `audit.example.com`) to the server's IP.
-2. Install Caddy ([caddyserver.com/docs/install](https://caddyserver.com/docs/install#debian-ubuntu-raspbian)):
-   ```bash
-   sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-   sudo apt-get update && sudo apt-get install -y caddy
-   ```
-3. Create a password hash:
-   ```bash
-   caddy hash-password        # type the password; copy the $2a$... output
-   ```
-4. Replace `/etc/caddy/Caddyfile` with:
-   ```
-   audit.example.com {
-       basic_auth {
-           admin PASTE_THE_HASH_HERE
-       }
-       reverse_proxy 127.0.0.1:8000
-   }
-   ```
-5. Reload Caddy and open the firewall:
-   ```bash
-   sudo systemctl reload caddy
-   sudo ufw allow OpenSSH && sudo ufw allow 80,443/tcp && sudo ufw enable
-   ```
-6. Browse to **https://audit.example.com** and log in as `admin`. Caddy gets the HTTPS certificate automatically.
+Set `APP_BIND=0.0.0.0` in `.env`, run `docker compose up -d`, and browse to `http://SERVER_IP:8000`.
 
-### C. Direct on the server's IP (only on a private network or VPN)
-
-Set `APP_BIND=0.0.0.0` in `.env`, then run `docker compose up -d`, and browse to `http://SERVER_IP:8000`.
-
-> ⚠ **Docker-published ports bypass `ufw`.** On a public server this exposes the app, and your API credits, to anyone. Use A or B instead.
+> ⚠ **Never do this on a server with a public IP.** Docker-published ports bypass `ufw`, so anyone on the internet could open the app and spend your credits.
 
 ---
 
@@ -245,8 +230,13 @@ curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json
    4. **Competitors & gaps**: filled in automatically after each ranking check (no SerpApi credits). Every gap is something to *review*, not to copy.
 5. **Full audit** (top right) runs all four steps in one go. It shows the SerpApi cost first, and you can leave the ranking check out (then it uses no SerpApi credits).
 6. **Report ▾** (top right): open the report in the browser, or download it as **PDF** or **CSV** (a zip with one file per section). Reports use saved data only, no credits.
+7. **🗑** (top right): delete a project and all its data, after a confirmation. Not possible while one of its jobs is running.
 
-API reference: **http://localhost:8000/docs** (through your tunnel or proxy).
+Only one job runs per project at a time: a second click (or a colleague starting the same project) gets *"already running … wait for it to finish"*, so credits are never spent twice.
+
+**Settings** (left menu) shows, read-only: whether the keys are set (masked), today's and this month's usage for every limit with its `.env` name, when limits reset, the worker status, and the last clean-up. To change a value, edit `.env` and run `docker compose up -d`.
+
+API reference: **http://localhost:8000/docs** (through your tunnel).
 
 ---
 
@@ -261,7 +251,9 @@ Run these from the app folder (`cd ~/local-seo-audit`):
 | Stop (data kept) | `docker compose down` |
 | Start | `docker compose up -d` |
 | Apply `.env` changes | `docker compose up -d` (recreates the containers that changed) |
-| Update to the latest code | `git pull && docker compose up -d --build` (migrations run automatically) |
+| Update to the latest code | `git pull && docker compose up -d --build` (migrations run automatically; your data and `.env` are kept) |
+| Run the 30-day clean-up now | `curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json" -d '{"job_type":"retention_cleanup"}'` |
+| More detailed logs | set `DEBUG=true` in `.env`, `docker compose up -d`; set it back to `false` afterwards |
 | Free disk after updates | `docker image prune -f` |
 
 **Backup and restore the database:**
@@ -286,13 +278,13 @@ Run `mkdir -p ~/backups` first.
 
 | Service | Free per month | Used by |
 |---|---|---|
-| Google Places, Place Details | ~900 (app limit) | 1 per audit |
+| Google Places, Place Details | ~900 (app limit; 100 per day) | 1 per audit; up to 1 per competitor (cached 7 days, stops while 10 are left) |
 | Google Places, business search | ~900 (app limit) | 1 per new project (cached 7 days) |
 | Google Geocoding | ~9,000 | only for websites without map coordinates |
-| SerpApi | 250 searches (app stops at 240; renews monthly on your sign-up day) | ranking checks (2 per active keyword, or 1 in `maps_only`); optional top-10 reviews (2 per audit) |
-| Website reading, review analysis | unlimited | runs on your server |
+| SerpApi | 250 searches (app stops at 240, and at 40 per day; renews monthly on your sign-up day) | ranking checks (2 per active keyword, or 1 in `maps_only`); optional top-10 reviews (2 per audit) |
+| Website reading, review analysis, competitors' analysis, reports | unlimited | runs on your server |
 
-The **Overview** page shows this month's usage. Limits are in `.env` (`QUOTA_*`) and reset monthly.
+The **Overview** and **Settings** pages show today's and this month's usage. Limits are in `.env` (`QUOTA_*`). Daily limits reset at 00:00 UTC, monthly ones on the 1st. When one is reached, the app says so in plain words, with the time it resets.
 
 ---
 
@@ -307,7 +299,10 @@ The **Overview** page shows this month's usage. Limits are in `.env` (`QUOTA_*`)
 | Diagnostic: Google key red | Places API (New) not enabled, key restricted to the wrong APIs or IP, or billing not linked |
 | Diagnostic: SerpApi red | Key incomplete (it is about 64 characters) or not verified |
 | "Map pin vs site: Not available" | Enable the **Geocoding API** on your key, or set `NOMINATIM_USER_AGENT` with your email, then `docker compose up -d` |
-| Caddy shows 502 | The app is not running: `docker compose ps`, `docker compose logs api` |
+| "already running … wait for it to finish" | Another job for that project is still queued or running. Wait, or check **Jobs**. A job stuck for 2 hours is released automatically. |
+| "daily limit reached … Resets at 00:00 UTC" | A free-tier safety limit. Wait for the reset, or raise the named `QUOTA_..._DAILY` in `.env` and run `docker compose up -d` (keep the monthly ones) |
+| Job says "Interrupted" | The server or worker restarted during it. Run it again. |
+| Settings shows worker "not responding" | `docker compose ps` and `docker compose logs --tail=100 worker`; `docker compose up -d` restarts it |
 | Anything else | `docker compose logs --tail=200 api worker` |
 
 ---
@@ -315,10 +310,12 @@ The **Overview** page shows this month's usage. Limits are in `.env` (`QUOTA_*`)
 ## 12. Security checklist
 
 - [ ] `.env` has `chmod 600` and is never committed or shared
-- [ ] `APP_BIND=127.0.0.1`, with access through an SSH tunnel or Caddy with a password ([step 7](#7-open-the-web-app))
+- [ ] `APP_BIND=127.0.0.1` (no login: open it through an SSH tunnel, [step 7](#7-open-the-web-app))
+- [ ] `DEBUG=false`
 - [ ] Google key restricted to **Places API (New)** (+ Geocoding) and to the **server IP**
 - [ ] `$1` billing alert set in Google Cloud
-- [ ] `ufw` enabled (OpenSSH, 80, 443 only)
+- [ ] `ufw` enabled (OpenSSH only)
+- [ ] `sudo systemctl enable docker` (the app comes back after a reboot)
 - [ ] Ubuntu security updates: `sudo apt-get update && sudo apt-get upgrade -y` (or enable `unattended-upgrades`)
 - [ ] Regular database backups ([step 9](#9-operations))
 

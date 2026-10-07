@@ -5,6 +5,7 @@ from app.workers.jobs import (  # noqa: F401
     discover_business,
     full_audit,
     gbp_audit,
+    maintenance,
     ranking_check,
     review_analysis,
     website_discovery,

@@ -2,7 +2,7 @@
 
 import httpx
 
-from app.providers.base import ProviderError
+from app.providers.base import ProviderError, send_with_retry
 
 BASE_URL = "https://serpapi.com"
 PROVIDER = "serpapi"
@@ -19,7 +19,9 @@ class SerpApiClient:
 
     def locations(self, query: str, limit: int = 10) -> list[dict]:
         """SerpApi's Google locations list (canonical names for `location=`). Free: no search used."""
-        response = self._client.get("/locations.json", params={"q": query, "limit": limit})
+        response = send_with_retry(
+            PROVIDER, lambda: self._client.get("/locations.json", params={"q": query, "limit": limit})
+        )
         if response.status_code >= 400:
             raise ProviderError(PROVIDER, response.text[:200], response.status_code)
         return response.json()
@@ -29,7 +31,9 @@ class SerpApiClient:
         return self._get("/search.json", params)
 
     def _get(self, path: str, params: dict) -> dict:
-        response = self._client.get(path, params={**params, "api_key": self._api_key})
+        response = send_with_retry(
+            PROVIDER, lambda: self._client.get(path, params={**params, "api_key": self._api_key})
+        )
         data = response.json() if response.content else {}
         if response.status_code >= 400 or (isinstance(data, dict) and data.get("error")):
             message = (

@@ -27,8 +27,8 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 7 | Rank tracking & visibility | §2 | **Done** | 100% | — |
 | 8 | Competitors & gap analysis | §3 | **Done** (0 SerpApi credits) | 100% | — |
 | 9 | Full pipeline, reports & UI | §4, §7 | **Done** (full audit job, HTML/PDF/CSV report) | 100% | — |
-| 10 | Hardening & compliance | §6 | Partial (old scraper removed, keys redacted, CI) | 10% | 3 d |
-| **v1 total (0–10)** | | | | **≈ 94%** | **≈ 3 d left** |
+| 10 | Hardening & compliance (in-house) | §6 | **Done** (no login by choice) | 100% | — |
+| **v1 total (0–10)** | | | | **100%** | — |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
 
 ---
@@ -252,18 +252,27 @@ Effort estimates are rough, for one developer working with Claude, in working da
 
 ## Phase 10 — Hardening & compliance
 
-**Goal:** safe to show to real clients.
+**Goal:** safe and dependable as an **in-house** tool. Scope agreed with the user on 2026-10-07: no login screen, no API keys or per-user rate limits; the app stays server-only (`APP_BIND=127.0.0.1`, SSH tunnel); no automatic database backups.
 
-- [ ] Retention cleanup task (`data_sources.expires_at`; only `place_id` is stored indefinitely)
-- [ ] Attribution checks in UI + report
-- [ ] API-key auth for `/v1` endpoints; rate limiting
-- [ ] Retry/backoff for providers; clear error messages when a quota is reached
-- [ ] Structured logging; job failure details visible
-- [ ] End-to-end tests with mocked providers (`completed` and `partial_success` paths)
+- [x] Access: unchanged by choice, server-only default (no login); README explains SSH-tunnel access and the risk of exposing it
+- [x] No double runs: one queued/running job per project (`409` "already running … wait"), chained jobs allowed, stale jobs ignored; daily SerpApi cap `QUOTA_SERPAPI_DAILY=40`
+- [x] Retries: at most 1 (`PROVIDER_RETRIES`) on timeouts, connection errors, 429 and 5xx, for Google Places and SerpApi; 4xx never retried; failed calls never counted
+- [x] Clear limit messages: which limit, used/limit, when it resets (00:00 UTC / 1st), which `.env` setting raises it; `GET /v1/usage` `blocked`; banner on Overview and project pages
+- [x] Stuck-job recovery: worker start marks running jobs "Interrupted"; every 30 min jobs older than `JOB_STALE_MINUTES` (120) are released; containers `restart: unless-stopped` + `systemctl enable docker` in README
+- [x] Log size limit (json-file 10 MB × 3 per container) and `DEBUG=false` (INFO logs; httpx never below WARNING so SerpApi keys never reach logs)
+- [x] 30-day retention clean-up (`app/services/retention.py`, `retention_cleanup` job, nightly at `CLEANUP_HOUR_UTC` via the worker's built-in scheduler): raw responses, review texts/authors/replies and quoted evidence, older profile snapshots (keeping place_id, rating, review count)
+- [x] Delete project (`DELETE /v1/projects/{id}` + 🗑 with confirmation in the UI)
+- [x] Settings page (`GET /v1/settings`, left menu): masked keys, every limit with its `.env` name, resets, worker status, last clean-up, feature settings
+- [x] End-to-end tests (`tests/test_e2e.py`: create → full audit with rankings → competitors → gaps → HTML/CSV, `completed` and `partial_success`) + in-house tests (`tests/test_inhouse.py`); tests now refuse any real network call
 - [x] Remove the old Selenium scraper (`legacy/`)
-- [ ] Update README + replace `project_documentation.md`
+- [x] Docs: README (in-house access, settings, troubleshooting), `docs/PRODUCT.md` replaces `project_documentation.md`
+- [x] Attribution in UI + report (review authors + Google links, sources section)
+- ~~API-key auth for `/v1`; rate limiting~~: not needed in-house (user decision)
+- ~~Automatic database backups~~: declined; manual commands in the README
 
 **Done when:** CI is green, there are no secrets in the repo, and retention rules are enforced.
+
+✅ **Verified 2026-10-07** live: worker starts its scheduler; Settings shows masked keys, worker online, all limits; clean-up job `completed`; a second Re-analyse click → `409 already running`; container logs capped (`max-size 10m, max-file 3`). 138 tests passing.
 
 ---
 
@@ -284,4 +293,4 @@ Each item is independent and can be picked in any order after v1. ⚠️ marks i
 ## What you need to do next
 
 1. Optional: set `NOMINATIM_USER_AGENT` (your email) or enable the Geocoding API, for map-pin distances on sites without coordinates.
-2. Next build phase: 10 (hardening: login, retention, retries).
+2. v1 is complete. Optional next: Phase 11 items, picked one at a time.

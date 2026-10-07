@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -23,6 +23,49 @@ SKU_LIMITS = {
     "google_geocoding": ("quota_geocoding_monthly", "quota_geocoding_daily"),
     "serpapi_search": ("quota_serpapi_monthly", "quota_serpapi_daily"),
 }
+SKU_LABEL = {
+    "google_places_text_search": "Google business search",
+    "google_places_text_search_enterprise": "Google business search (Quick fill / find business)",
+    "google_places_details": "Google profile lookups",
+    "google_geocoding": "Google address lookups",
+    "serpapi_search": "SerpApi searches",
+}
+
+
+def next_daily_reset(now: datetime | None = None) -> datetime:
+    now = now or datetime.now(UTC)
+    return datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=UTC)
+
+
+def next_monthly_reset(now: datetime | None = None) -> datetime:
+    now = now or datetime.now(UTC)
+    first = now.date().replace(day=1)
+    nxt = (first + timedelta(days=32)).replace(day=1)
+    return datetime.combine(nxt, time.min, tzinfo=UTC)
+
+
+def _in(delta: timedelta) -> str:
+    minutes = max(int(delta.total_seconds() // 60), 0)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes} min" if hours else f"{minutes} min"
+
+
+def limit_message(sku: str, kind: str, used: int, limit: int, now: datetime | None = None) -> str:
+    """Plain-language message: what is used up, when it resets, which setting raises it."""
+    now = now or datetime.now(UTC)
+    label = SKU_LABEL.get(sku, sku)
+    monthly_attr, daily_attr = SKU_LIMITS[sku]
+    if kind == "daily":
+        reset = next_daily_reset(now)
+        return (
+            f"{label}: daily limit reached ({used}/{limit}). Resets at 00:00 UTC, in {_in(reset - now)}. "
+            f"To allow more per day, raise {daily_attr.upper()} in .env."
+        )
+    reset = next_monthly_reset(now)
+    return (
+        f"{label}: monthly free-tier limit reached ({used}/{limit}). Resets on {reset:%d %b} (UTC). "
+        f"{monthly_attr.upper()} in .env keeps you inside the free tier: only raise it if you accept charges."
+    )
 
 
 class QuotaExceeded(Exception):
@@ -43,6 +86,15 @@ class UsageStatus:
         if self.daily_limit:
             left = min(left, self.daily_limit - self.day_count)
         return max(left, 0)
+
+    @property
+    def blocked_message(self) -> str | None:
+        """Why this SKU cannot be used right now (None when it can)."""
+        if self.month_count >= self.monthly_limit:
+            return limit_message(self.sku, "monthly", self.month_count, self.monthly_limit)
+        if self.daily_limit and self.day_count >= self.daily_limit:
+            return limit_message(self.sku, "daily", self.day_count, self.daily_limit)
+        return None
 
 
 def _today() -> date:
@@ -107,10 +159,10 @@ def consume(
     _, month_count = _counts(db, sku, day)
     if month_count + n > monthly_limit:
         db.rollback()
-        raise QuotaExceeded(f"{sku}: monthly free-tier limit reached ({month_count}/{monthly_limit})")
+        raise QuotaExceeded(limit_message(sku, "monthly", month_count, monthly_limit))
     if daily_limit and row.count + n > daily_limit:
         db.rollback()
-        raise QuotaExceeded(f"{sku}: daily limit reached ({row.count}/{daily_limit})")
+        raise QuotaExceeded(limit_message(sku, "daily", row.count, daily_limit))
     row.count += n
     db.commit()
 
