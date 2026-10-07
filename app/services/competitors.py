@@ -254,6 +254,9 @@ def fetch_details(db: Session, place_id: str) -> tuple[dict | None, str | None]:
     client = get_places_client()
     if client is None:
         return None, "GOOGLE_API_KEY not set"
+    left = quota.get_usage(db, "google_places_details").remaining
+    if left <= settings.competitor_details_reserve:  # client audits come first
+        return None, f"Place Details kept for client audits ({left} left today/this month)"
     try:
         quota.consume(db, "google_places_details")
     except quota.QuotaExceeded as exc:

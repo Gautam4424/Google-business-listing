@@ -362,6 +362,20 @@ def test_generic_google_labels_are_never_gaps_and_related_services_are_found():
     assert gaps.related_services("Roofer", client["services"]) == []
 
 
+def test_competitor_lookups_leave_a_reserve_for_client_audits(db, setup, monkeypatch):
+    project, _, places_calls = setup
+    monkeypatch.setattr(competitors.get_settings(), "quota_places_details_daily", 11)
+    from app.services import quota
+
+    quota.consume(db, "google_places_details")  # 10 left = the reserve
+    _check(db, project)
+    assert places_calls == []  # nothing spent on competitors
+    report = competitors.competitors_report(db, project)
+    assert report["competitors"] and all(
+        c["profile_source"] == "search_results" for c in report["competitors"]
+    )
+
+
 def test_no_category_gap_from_a_single_competitor():
     client = {"categories": ["Plumber"], "services": []}
     comps = [

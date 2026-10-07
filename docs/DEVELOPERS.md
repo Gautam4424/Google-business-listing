@@ -58,6 +58,8 @@ curl localhost:8000/v1/usage    # free-tier usage this month
 | GET | `/v1/projects/{id}/rankings` | Latest check: visibility score, counts, per-keyword ranks, change, history, top businesses |
 | GET | `/v1/projects/{id}/competitors` | Competitors from the latest ranking check (brief rule), side by side with the client |
 | POST | `/v1/projects/{id}/competitors/analyze` | Re-run competitors + gaps on the latest check (0 SerpApi; ≤ `COMPETITOR_MAX` cached Place Details). Also runs automatically after every ranking check |
+| POST | `/v1/projects/{id}/full-audit` | Everything in one job: audit → keywords → rankings → competitors & gaps → report (`{"rankings": true, "mode": "full"\|"maps_only"}`); 422 up front when keywords exist and credits are short |
+| GET | `/v1/projects/{id}/report` | `?format=html` (default), `pdf` (A4, headless Chromium), `csv` (zip of 7 files, or one with `&section=gaps`), `json`; built from stored data, no API calls |
 | GET | `/v1/projects/{id}/gaps` | Category, service, review, review-topic and ranking gaps (brief §3 shape + `title`, `priority`, `evidence`) |
 | GET | `/v1/jobs` | List jobs, newest first (`?project_id=`, `?status=`) |
 | GET | `/v1/jobs/{id}` | Job status with per-step results and errors |

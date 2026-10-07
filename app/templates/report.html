@@ -1,0 +1,237 @@
+<!doctype html>
+{%- set p = d.profile or {} -%}
+{%- set pr = d.project -%}
+{%- set name = p.business_name or pr.business_name -%}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local SEO audit · {{ name }}</title>
+<style>
+  :root {
+    --ink: #16191d; --muted: #5f6873; --line: #e3e6ea; --soft: #f4f6f8; --accent: #0f766e; --accent-soft: #e3f3f1;
+    --ok: #1a7f37; --ok-soft: #e6f4ea; --warn: #9a6700; --warn-soft: #fff4d6; --bad: #c62828; --bad-soft: #fdecea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 13px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 28px 20px 40px; }
+  a { color: var(--accent); text-decoration: none; }
+  h1 { font-size: 26px; margin: 2px 0 4px; letter-spacing: -.01em; }
+  h2 { font-size: 17px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
+  h3 { font-size: 13.5px; margin: 14px 0 6px; }
+  .kicker { color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 11.5px; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 14px; margin-bottom: 18px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 0 0 18px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--soft); }
+  .tile .v { font-size: 19px; font-weight: 700; }
+  .tile .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  section { margin: 0 0 22px; break-inside: auto; }
+  .no { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; flex: none; }
+  .box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+  td { border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+  tr { break-inside: avoid; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .kv td:first-child { width: 28%; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; font-size: 11.5px; background: #fff; }
+  .chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+  .chip.bad { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+  .pill { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .pill.high, .pill.mismatch { background: var(--bad-soft); color: var(--bad); }
+  .pill.medium, .pill.missing { background: var(--warn-soft); color: var(--warn); }
+  .pill.low { background: var(--soft); color: var(--muted); }
+  .pill.match { background: var(--ok-soft); color: var(--ok); }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .gap { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; break-inside: avoid; }
+  .gap.high { border-left-color: var(--bad); } .gap.medium { border-left-color: var(--warn); }
+  .gap p { margin: 4px 0 0; }
+  .review { border-bottom: 1px solid var(--line); padding: 8px 0; break-inside: avoid; }
+  .review:last-child { border-bottom: 0; }
+  .reply { margin: 6px 0 0 14px; padding-left: 10px; border-left: 2px solid var(--line); color: var(--muted); }
+  .you td { background: var(--accent-soft); }
+  .stars { color: #e3a008; letter-spacing: 1px; }
+  footer { border-top: 1px solid var(--line); padding-top: 12px; color: var(--muted); font-size: 11.5px; }
+  footer ul { margin: 6px 0 0; padding-left: 18px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid2 { grid-template-columns: minmax(0, 1fr); } .scroll { overflow-x: auto; } }
+  @media print { main { padding: 0; max-width: none; } section { break-inside: auto; } h2 { break-after: avoid; } }
+</style>
+</head>
+<body><main>
+
+<header class="top">
+  <div class="kicker">Local SEO audit</div>
+  <h1>{{ name }}</h1>
+  <div class="meta">
+    {% if p.primary_category %}<span>{{ p.primary_category }}</span>{% endif %}
+    {% if p.formatted_address %}<span>{{ p.formatted_address }}</span>{% endif %}
+    <span>Report date {{ d.generated_at | date }}</span>
+  </div>
+</header>
+
+<div class="tiles">
+  {% for t in tiles %}<div class="tile"><div class="v">{{ t.value }}</div><div class="l">{{ t.label }}</div></div>{% endfor %}
+</div>
+
+{% set top = d.gaps | selectattr("priority", "in", ["high", "medium"]) | list %}
+{% if top %}
+<section>
+  <h2>Top priorities</h2>
+  <div class="box"><table>
+    {% for g in top[:6] %}<tr><td style="width:80px"><span class="pill {{ g.priority }}">{{ g.priority }}</span></td><td><b>{{ g.title }}</b><div class="muted small">{{ g.recommendation }}</div></td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endif %}
+
+<section>
+  <h2><span class="no">1</span>Google Business Profile</h2>
+  {% if d.profile %}
+  <div class="box"><table class="kv">
+    <tr><td>Business name</td><td>{{ p.business_name or "—" }}</td></tr>
+    <tr><td>Address</td><td>{{ p.formatted_address or "—" }}</td></tr>
+    <tr><td>Phone</td><td>{{ p.phone_number or "—" }}</td></tr>
+    <tr><td>Website</td><td>{% if p.website_url %}<a href="{{ p.website_url }}">{{ p.website_url }}</a>{% else %}—{% endif %}</td></tr>
+    <tr><td>Primary category</td><td>{{ p.primary_category or "—" }}</td></tr>
+    <tr><td>Other types</td><td>{{ (p.secondary_categories or []) | join(", ") or "—" }}</td></tr>
+    <tr><td>Rating</td><td>{% if p.rating is not none %}<span class="stars">★</span> {{ p.rating }} from {{ p.review_count | num }} reviews{% else %}—{% endif %}</td></tr>
+    <tr><td>Status</td><td>{{ (p.business_status or "—") | replace("_", " ") | lower | capitalize }}</td></tr>
+    <tr><td>Opening hours</td><td>{% if p.opening_hours and p.opening_hours.weekday_descriptions %}{{ p.opening_hours.weekday_descriptions | join(" · ") }}{% else %}Not listed{% endif %}</td></tr>
+    <tr><td>Map pin</td><td>{{ p.map_pin_status or "—" }}{% if p.maps_url %} · <a href="{{ p.maps_url }}">Open in Google Maps</a>{% endif %}</td></tr>
+    <tr><td>Photos</td><td>{{ p.photos_count_available if p.photos_count_available is not none else "—" }}{% if p.photos_count_available is not none %} returned by Google (max 10){% endif %}</td></tr>
+    <tr><td>Description</td><td>{{ p.editorial_summary or "—" }}</td></tr>
+    <tr><td>Service options</td><td>{{ (p.service_options or []) | join(", ") or "—" }}</td></tr>
+    <tr><td>Accessibility</td><td>{{ (p.accessibility_attributes or []) | join(", ") or "—" }}</td></tr>
+  </table></div>
+  {% if pr.match_confidence is not none %}
+  <h3>Is this the right listing? Match {{ (pr.match_confidence * 100) | round | int }}%</h3>
+  <div class="chips">
+    {% for r in pr.match_reasons or [] %}<span class="chip ok">✓ {{ r }}</span>{% endfor %}
+    {% for r in pr.mismatch_reasons or [] %}<span class="chip bad">✗ {{ r }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% else %}<p class="muted">No Google profile audited yet.</p>{% endif %}
+</section>
+
+<section>
+  <h2><span class="no">2</span>Website vs Google</h2>
+  {% if d.nap_check %}
+  <div class="box scroll"><table>
+    <tr><th>Field</th><th>Google</th><th>Website</th><th>Result</th></tr>
+    {% for key, row in d.nap_check.items() %}
+    <tr><td>{{ key | capitalize }}</td><td>{{ row.google or "—" }}</td><td>{{ row.website or "—" }}</td>
+      <td><span class="pill {{ row.status }}">{{ row.status }}</span>{% if row.detail %}<div class="muted small">{{ row.detail }}</div>{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% if d.location and d.location.pin_vs_website_address_distance_meters is not none %}
+  <p class="small">Google map pin is <b>{{ d.location.pin_vs_website_address_distance_meters | round | int | num }} m</b> from the address on the website.</p>
+  {% endif %}
+  {% elif d.website %}<p class="muted">Website read, but no Google profile to compare with.</p>
+  {% else %}<p class="muted">The website has not been read.</p>{% endif %}
+  {% if d.social_profiles %}
+  <h3>Social profiles found on the website</h3>
+  <div class="chips">{% for k, url in d.social_profiles.items() %}<a class="chip" href="{{ url }}">{{ k | capitalize }}</a>{% endfor %}</div>
+  {% endif %}
+</section>
+
+<section>
+  <h2><span class="no">3</span>Reviews</h2>
+  {% set s = d.review_summary %}
+  {% if s %}
+  <div class="grid2">
+    <div class="box"><b>Customers praise</b><div class="chips" style="margin-top:6px">{% for t in s.top_positive_topics %}<span class="chip ok">{{ t }}</span>{% else %}<span class="muted">—</span>{% endfor %}</div></div>
+    <div class="box"><b>Customers complain about</b><div class="chips" style="margin-top:6px">{% for t in s.top_negative_topics %}<span class="chip bad">{{ t }}</span>{% else %}<span class="muted">—</span>{% endfor %}</div></div>
+  </div>
+  <p class="small muted">Sentiment: {{ s.sentiment_distribution.positive }} positive · {{ s.sentiment_distribution.neutral }} neutral · {{ s.sentiment_distribution.negative }} negative. {{ s.note or "" }}</p>
+  {% endif %}
+  {% if d.reviews %}
+  <div class="box">
+    {% for r in d.reviews %}
+    <div class="review">
+      <div><b>{% if r.author_url %}<a href="{{ r.author_url }}">{{ r.author_name or "Google user" }}</a>{% else %}{{ r.author_name or "Google user" }}{% endif %}</b>
+        {% if r.rating %}<span class="stars">{{ "★" * r.rating }}</span>{% endif %}
+        <span class="muted small">{{ r.relative_publish_time or (r.published_at | date) }}{% if r.review_url %} · <a href="{{ r.review_url }}">View on Google</a>{% endif %}</span></div>
+      {% if r.review_text %}<div>{{ r.review_text | truncate(600) }}</div>{% endif %}
+      {% if r.owner_reply %}<div class="reply small"><b>Owner reply:</b> {{ r.owner_reply | truncate(400) }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted">No reviews collected.</p>{% endif %}
+</section>
+
+<section>
+  <h2><span class="no">4</span>Services &amp; keywords</h2>
+  <h3>Core services</h3>
+  <div class="chips">{% for x in d.services.core %}<span class="chip ok">{{ x }}</span>{% else %}<span class="muted">None chosen</span>{% endfor %}</div>
+  {% if d.services.other %}<h3>Other services found</h3><div class="chips">{% for x in d.services.other[:30] %}<span class="chip">{{ x }}</span>{% endfor %}</div>{% endif %}
+  {% set active = d.keywords | selectattr("active") | list %}
+  <h3>Tracked keywords ({{ active | length }})</h3>
+  {% if active %}<div class="box scroll"><table><tr><th>Keyword</th><th>Service</th><th>Area</th></tr>
+    {% for k in active %}<tr><td>{{ k.keyword }}</td><td>{{ k.service or "—" }}</td><td>{{ k.location_name }}</td></tr>{% endfor %}
+  </table></div>{% else %}<p class="muted">No keywords switched on.</p>{% endif %}
+</section>
+
+<section>
+  <h2><span class="no">5</span>Local rankings</h2>
+  {% set rk = d.rankings %}
+  {% if rk %}
+  {% set sm = rk.summary %}
+  <p>Checked {{ rk.checked_at | date }} ({{ "Maps only, Local Pack estimated" if rk.mode == "maps_only" else "Local Pack + Local Finder" }}) on a mobile device, searching from each keyword's area.
+    Visibility score <b>{{ sm.visibility_score }}/100</b>{% if sm.visibility_change is defined and sm.visibility_change is not none %} ({{ "+" if sm.visibility_change > 0 else "" }}{{ sm.visibility_change }} since the previous check){% endif %}.
+    In the Local Pack for {{ sm.in_local_pack }} of the {{ sm.keywords }} keywords checked; in the Local Finder for {{ sm.in_local_finder }}.</p>
+  <div class="box scroll"><table>
+    <tr><th>Keyword</th><th class="num">Local Pack</th><th class="num">Local Finder</th><th class="num">Score</th></tr>
+    {% for k in rk.keywords %}<tr><td>{{ k.keyword }}<div class="muted small">{{ k.location_name or "" }}</div></td>
+      <td class="num">{% if k.local_pack_shown == false %}<span class="muted">no Local Pack</span>{% elif k.local_pack_rank %}#{{ k.local_pack_rank }}{% if k.local_pack_estimated %} <span class="muted small">est.</span>{% endif %}{% else %}<span class="muted">not in top 3</span>{% endif %}</td>
+      <td class="num">{% if k.local_finder_rank %}#{{ k.local_finder_rank }}{% else %}<span class="muted">not in top 20</span>{% endif %}</td>
+      <td class="num">{{ k.visibility }}</td></tr>{% endfor %}
+  </table></div>
+  <p class="small muted">Score per keyword: Local Pack #1 = 100, #2 = 70, #3 = 50; Local Finder 1–3 = 40, 4–10 = 20, 11–20 = 10; out of 140, shown as 0–100.</p>
+  {% else %}<p class="muted">No ranking check yet.</p>{% endif %}
+</section>
+
+<section>
+  <h2><span class="no">6</span>Competitors</h2>
+  {% set c = d.competitors %}
+  {% if c.analysis and c.competitors %}
+  <p class="small muted">Businesses that keep appearing for the tracked keywords: {{ c.rule | lower }}.</p>
+  <div class="box scroll"><table>
+    <tr><th>Business</th><th class="num">Rating</th><th class="num">Reviews</th><th class="num">Keywords</th><th class="num">Local Pack</th></tr>
+    {% if c.client %}<tr class="you"><td><b>{{ c.client.business_name }}</b> (you)<div class="muted small">{{ c.client.categories[:4] | join(" · ") }}</div></td><td class="num">{{ c.client.rating or "—" }}</td><td class="num">{{ c.client.review_count | num }}</td><td class="num">{{ c.client.local_finder_count }}/{{ c.client.keywords }}</td><td class="num">{{ c.client.local_pack_count }}</td></tr>{% endif %}
+    {% for x in c.competitors %}<tr><td><b>{{ x.business_name }}</b><div class="muted small">{{ (x.categories | reject("in", ["Service establishment"]) | list)[:4] | join(" · ") }}{% if x.website_domain %} · {{ x.website_domain }}{% endif %}</div></td>
+      <td class="num">{{ x.rating if x.rating is not none else "—" }}</td><td class="num">{{ x.review_count | num }}</td><td class="num">{{ x.keyword_share | pct }}</td><td class="num">{{ x.local_pack_count }}</td></tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="muted">No competitor analysis yet (it runs after a ranking check).</p>{% endif %}
+</section>
+
+<section>
+  <h2><span class="no">7</span>Gaps to review</h2>
+  {% if d.gaps %}
+  <p class="small muted">Each item is something to <b>review</b>, not to copy: only add a category or service the business really provides and is eligible for.</p>
+  {% for g in d.gaps %}
+  <div class="gap {{ g.priority }}"><span class="pill {{ g.priority }}">{{ g.priority }}</span> <b>{{ g.title }}</b>
+    <p>{{ g.recommendation }}</p>
+    {% set ev = g.evidence or {} %}
+    {% if ev.local_pack %}<div class="muted small">Local Pack: {% for x in ev.local_pack %}#{{ x.rank }} {{ x.business_name }}{{ "" if loop.last else " · " }}{% endfor %}</div>
+    {% elif ev.competitors is mapping %}<div class="muted small">{% for k, v in ev.competitors.items() %}{{ k }}: {{ v | num }}{{ "" if loop.last else " · " }}{% endfor %}</div>
+    {% elif ev.competitors %}<div class="muted small">Competitors: {{ ev.competitors[:6] | join(", ") }}{% if ev.competitors | length > 6 %} +{{ ev.competitors | length - 6 }}{% endif %}</div>{% endif %}
+    {% if ev.basis %}<div class="muted small">{{ ev.basis }}</div>{% endif %}
+  </div>
+  {% endfor %}
+  {% else %}<p class="muted">No gaps found yet.</p>{% endif %}
+</section>
+
+<footer>
+  <b>Sources</b>
+  <ul>
+    {% if d.profile %}<li>Business profile, map pin and reviews: Google (Places API), checked {{ p.last_checked_at | date }}. Review texts belong to their authors; each links to the original on Google.</li>{% endif %}
+    {% if d.rankings %}<li>Rankings and competitors: Google search and Google Maps results via SerpApi, checked {{ d.rankings.checked_at | date }}.</li>{% endif %}
+    {% if d.website %}<li>Website: <a href="{{ d.website.url }}">{{ d.website.url }}</a>, read {{ d.website.collected_at | date }}.</li>{% endif %}
+    <li>Sentiment, topics, services and gaps: computed by this audit from the data above.</li>
+  </ul>
+</footer>
+</main></body>
+</html>

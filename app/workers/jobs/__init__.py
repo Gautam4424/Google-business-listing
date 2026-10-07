@@ -3,6 +3,7 @@ from app.workers.jobs import (  # noqa: F401
     competitor_analysis,
     diagnostic,
     discover_business,
+    full_audit,
     gbp_audit,
     ranking_check,
     review_analysis,

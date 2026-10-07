@@ -105,6 +105,7 @@ def get_profile(project_id: uuid.UUID, db: Session = Depends(get_db)) -> Profile
                     "review_analysis",
                     "ranking_check",
                     "competitor_analysis",
+                    "full_audit",
                 )
             ),
         )

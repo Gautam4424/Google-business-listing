@@ -349,6 +349,15 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .gap p { margin: 0; }
 .gap-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .gap-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Report menu (Phase 9) */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 190px; display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); }
+.menu-list a { padding: 7px 10px; border-radius: 6px; color: var(--text); white-space: nowrap; }
+.menu-list a:hover { background: var(--surface-2); text-decoration: none; }
+.run-check { display: flex; gap: 6px; align-items: center; font-weight: 500; font-size: 13px; }
+.run-check input, .run-mode input { width: auto; margin: 0; }
 /* Phones: the top bar is sticky already, so the step bar becomes one scrollable row in the page flow */
 @media (max-width: 760px) {
   .stepper { position: static; flex-wrap: nowrap; overflow-x: auto; }

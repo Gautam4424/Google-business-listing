@@ -32,6 +32,8 @@ const STEP_LABEL = {
   collect_rankings: "Local Pack & Local Finder searches",
   compute_visibility: "Visibility score",
   find_competitors: "Competitors & gaps",
+  check_budget: "SerpApi credit check",
+  build_report: "Report ready",
 };
 const stepLabel = (name) => STEP_LABEL[name] || humanize(name);
 const STEP_ICON = { succeeded: "✓", failed: "!", skipped: "–", running: "…", pending: "" };
@@ -647,6 +649,38 @@ async function renderCompetitorSection(project) {
   }
 }
 
+async function showFullCost(projectId) {
+  const box = document.getElementById("full-box");
+  if (!box) return;
+  box.hidden = false;
+  const withRank = document.getElementById("full-rank").checked;
+  box.querySelectorAll('input[name="fmode"]').forEach((r) => { r.disabled = !withRank; });
+  const cost = document.getElementById("full-cost");
+  const go = box.querySelector('[data-action="full-confirm"]');
+  if (!withRank) {
+    cost.innerHTML = "No SerpApi searches: competitors &amp; gaps use the last ranking check, if there is one.";
+    go.disabled = false;
+    return;
+  }
+  const mode = box.querySelector('input[name="fmode"]:checked')?.value || "full";
+  cost.innerHTML = `<span class="spinner"></span> Checking credits…`;
+  try {
+    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}`);
+    if (!e.active_keywords) {
+      cost.innerHTML = `Keywords are created during the audit; the ranking check then uses up to <b>${10 * (mode === "maps_only" ? 1 : 2)}</b> searches · <b>${e.credits_left}</b> left. It is skipped if there are not enough.`;
+      go.disabled = false;
+      return;
+    }
+    cost.innerHTML = `The ranking check uses <b>${e.searches_needed}</b> SerpApi search${e.searches_needed === 1 ? "" : "es"} for <b>${e.active_keywords}</b> active keywords`
+      + (e.searches_from_cache ? ` (${e.searches_from_cache} reused free)` : "")
+      + ` · <b>${e.credits_left}</b> left${e.renews_on ? ` · renews ${esc(e.renews_on)}` : ""}.`
+      + (e.enough ? "" : ` <span class="bad-text">Not enough searches left: untick the ranking check or switch keywords off.</span>`);
+    go.disabled = !e.enough;
+  } catch (err) {
+    cost.textContent = err.message;
+  }
+}
+
 async function showRunCost(projectId) {
   const box = document.getElementById("run-box");
   if (!box) return;
@@ -907,6 +941,23 @@ async function renderProject(id, silent = false) {
     } catch {}
     if (nav !== navCount) return;
   }
+  const pidEnc = encodeURIComponent(project.id);
+  const fullBtn = linked
+    ? `<button class="btn primary" data-action="full-open" data-project="${esc(project.id)}" ${running ? "disabled" : ""} title="Audit, keywords, rankings, competitors and report in one go">Full audit</button>` : "";
+  const reportMenu = g
+    ? `<details class="menu"><summary class="btn">Report ▾</summary><div class="menu-list">
+        <a href="/v1/projects/${pidEnc}/report?format=html" target="_blank" rel="noopener">Open report</a>
+        <a href="/v1/projects/${pidEnc}/report?format=pdf">Download PDF</a>
+        <a href="/v1/projects/${pidEnc}/report?format=csv">Download CSV (zip)</a></div></details>` : "";
+  const fullBox = linked ? `<div class="card card-body run-box" id="full-box" hidden>
+      <b>Full audit</b>
+      <p class="muted" style="margin:0">Runs everything in order: listing audit → services &amp; keywords → ranking check → competitors &amp; gaps → report. If one part fails, the rest is kept.</p>
+      <label class="run-check"><input type="checkbox" id="full-rank" checked> Include a ranking check (uses SerpApi searches)</label>
+      <div class="run-mode"><label><input type="radio" name="fmode" value="full" checked> Full · Local Pack + Maps (2 per keyword)</label>
+        <label><input type="radio" name="fmode" value="maps_only"> Maps only (1 per keyword)</label></div>
+      <p class="run-cost" id="full-cost"></p>
+      <div class="toolbar"><button class="btn primary sm" data-action="full-confirm" data-project="${esc(project.id)}">Start full audit</button>
+        <button class="btn ghost sm" data-action="full-cancel">Cancel</button></div></div>` : "";
   const websiteBtn = project.website_url && !running
     ? `<button class="btn ghost" data-action="website" data-project="${esc(project.id)}" title="Only read the website: no Google calls">Read website only</button>` : "";
 
@@ -1005,7 +1056,8 @@ async function renderProject(id, silent = false) {
       <p class="muted head-meta">${g?.primary_category ? `<span>${esc(g.primary_category)}</span>` : ""}
         ${g?.rating != null ? `<span>${stars(g.rating)} <b>${esc(g.rating)}</b> · ${fmtNum(g.review_count)} reviews</span>` : ""}
         <span>${esc(project.name)}</span></p></div>
-      <div class="toolbar">${websiteBtn}${auditBtn}</div></div>
+      <div class="toolbar">${reportMenu}${websiteBtn}${auditBtn}${fullBtn}</div></div>
+    ${fullBox}
     ${steps}
     <div class="stack">${auditProgress(job)}${discovery ? chooseCard(project, discovery) : ""}
       <section id="sec-audit" class="stack">${g ? `<h2 class="section-title"><span class="step-no">1</span>Listing audit</h2>` : ""}
@@ -1318,6 +1370,20 @@ document.addEventListener("click", (e) => {
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
+  if (action?.dataset.action === "full-open") return showFullCost(action.dataset.project);
+  if (action?.dataset.action === "full-cancel") {
+    document.getElementById("full-box").hidden = true;
+    return;
+  }
+  if (action?.dataset.action === "full-confirm") {
+    const box = document.getElementById("full-box");
+    const rankingsOn = document.getElementById("full-rank").checked;
+    const mode = box.querySelector('input[name="fmode"]:checked')?.value || "full";
+    action.disabled = true;
+    action.innerHTML = `<span class="spinner"></span>Starting…`;
+    return kwAction(() => api(`/v1/projects/${pid}/full-audit`, { method: "POST", body: JSON.stringify({ rankings: rankingsOn, mode }) }),
+      "Full audit started", { full: true });
+  }
   if (action?.dataset.action === "comp-analyze") {
     action.disabled = true;
     action.innerHTML = `<span class="spinner"></span>Analysing…`;
@@ -1374,6 +1440,11 @@ async function route() {
 }
 
 document.addEventListener("change", (e) => {
+  if (e.target.name === "fmode" || e.target.id === "full-rank") {
+    const pid1 = location.hash.split("/")[1];
+    if (pid1) showFullCost(pid1);
+    return;
+  }
   if (e.target.name === "rmode") {
     const pid0 = location.hash.split("/")[1];
     if (pid0) showRunCost(pid0);

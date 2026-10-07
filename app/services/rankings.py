@@ -429,10 +429,15 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+RANKING_JOB_TYPES = ("ranking_check", "full_audit")
+
+
 def ranking_checks(db: Session, project: Project, limit: int = 12) -> list[AuditJob]:
+    """Finished jobs that collected rankings (a ranking check, or a full audit that included one)."""
+    has_runs = select(RankingRun.id).where(RankingRun.audit_job_id == AuditJob.id).exists()
     return db.scalars(
         select(AuditJob)
-        .where(AuditJob.project_id == project.id, AuditJob.job_type == "ranking_check")
+        .where(AuditJob.project_id == project.id, AuditJob.job_type.in_(RANKING_JOB_TYPES), has_runs)
         .where(AuditJob.status.in_(("completed", "partial_success")))
         .order_by(AuditJob.created_at.desc())
         .limit(limit)

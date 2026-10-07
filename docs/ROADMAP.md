@@ -26,9 +26,9 @@ Effort estimates are rough, for one developer working with Claude, in working da
 | 6 | Service list & keyword generator | Step 4, §2 | **Done** (competitor patterns come with Phase 8) | 100% | — |
 | 7 | Rank tracking & visibility | §2 | **Done** | 100% | — |
 | 8 | Competitors & gap analysis | §3 | **Done** (0 SerpApi credits) | 100% | — |
-| 9 | Full pipeline, reports & UI | §4, §7 | Partial (UI for phases 1–8 done; reports not started) | 35% | 3 d |
+| 9 | Full pipeline, reports & UI | §4, §7 | **Done** (full audit job, HTML/PDF/CSV report) | 100% | — |
 | 10 | Hardening & compliance | §6 | Partial (old scraper removed, keys redacted, CI) | 10% | 3 d |
-| **v1 total (0–10)** | | | | **≈ 88%** | **≈ 6 d left** |
+| **v1 total (0–10)** | | | | **≈ 94%** | **≈ 3 d left** |
 | 11 | Advanced features (brief "phase two") | §7 | Not started | 0% | 10–15 d |
 
 ---
@@ -234,16 +234,19 @@ Effort estimates are rough, for one developer working with Claude, in working da
 **Goal:** one click/one call runs the whole audit and produces a report.
 
 - [x] Web UI shell (`app/static/`, served at http://localhost:8000): overview (health, stat tiles, free-tier usage meters, setup check from the latest diagnostic), projects (cards + New project dialog with validation), jobs (list, status filter, live job page with step timeline). Light/dark mode, phone layout. Verified in Chrome on 2026-10-07.
-- [~] Extend the UI as each phase lands: audit results, match, website vs Google, reviews, services & keywords, rankings, competitors & gaps ✅ (project page in step order 1 → 4); report download ⬜
-- [ ] Pipeline job: website → discover → profile → services/keywords → rankings → competitors → gaps → report
-- [ ] `partial_success` when an optional step fails (e.g. one SERP call)
-- [ ] HTML report (Jinja2) with source attribution + Google review links
-- [ ] PDF export (WeasyPrint)
-- [ ] CSV export (profile, rankings, competitors, gaps)
-- [ ] `GET /v1/projects/{id}/report?format=html|pdf|csv`
-- [~] Simple UI: create project (+ Quick fill) ✅ → watch job progress ✅ → manual GBP selection screen ✅ → view/download report ⬜
+- [x] Extend the UI as each phase lands: audit results, match, website vs Google, reviews, services & keywords, rankings, competitors & gaps (project page in step order 1 → 4), report menu
+- [x] Pipeline job `full_audit` (`app/workers/jobs/full_audit.py`): website → discover → profile → reviews → services/keywords → rankings → competitors → gaps → report; `POST /v1/projects/{id}/full-audit` (or `POST /v1/jobs` with `job_type=full_audit`); ranking check optional (`rankings: false` = 0 SerpApi)
+- [x] `partial_success` when an optional step fails (one search, not enough credits…); credits are never spent unless the credit check passed in the same job; full-audit rankings count as a ranking check (history, competitors)
+- [x] HTML report (Jinja2, `app/templates/report.html`): summary tiles, top priorities, profile, listing match, website vs Google, reviews with author + Google links, services & keywords, rankings, competitors, gaps, sources & attribution; self-contained (no scripts, no external files)
+- [x] PDF export: the same page printed to A4 by the headless Chromium already in the image (no WeasyPrint/extra libraries; network blocked while printing); 503 with a clear message when the image has no browser
+- [x] CSV export: zip of profile, nap_check, reviews, keywords, rankings, competitors, gaps (UTF-8 with BOM for Excel), or one section with `&section=`
+- [x] `GET /v1/projects/{id}/report?format=html|pdf|csv|json`
+- [x] Simple UI: create project (+ Quick fill) → watch job progress → manual GBP selection screen → **Full audit** (cost shown first) → **Report ▾** (open / PDF / CSV)
+- [x] Extra: competitor Place Details keep a reserve (`COMPETITOR_DETAILS_RESERVE`, 10) so they can't use up the lookups client audits need
 
 **Done when:** a single `POST /v1/jobs` produces a downloadable report end to end.
+
+✅ **Verified 2026-10-07** on Proximity Plumbing: full audit (without a new ranking check) `completed` with all 13 steps, 1 Place Details, 0 SerpApi; report HTML 25 KB, PDF 92 KB in 2.2 s, CSV zip of 7 files. In the browser: Full audit box shows "16 searches (4 reused free) · 219 left", unticking the ranking check shows 0 searches, Cancel starts nothing. 127 tests passing.
 
 ---
 
@@ -281,4 +284,4 @@ Each item is independent and can be picked in any order after v1. ⚠️ marks i
 ## What you need to do next
 
 1. Optional: set `NOMINATIM_USER_AGENT` (your email) or enable the Geocoding API, for map-pin distances on sites without coordinates.
-2. Next build phases: 9 (reports) → 10 (hardening).
+2. Next build phase: 10 (hardening: login, retention, retries).

@@ -138,6 +138,7 @@ The settings in `.env`:
 | `RANKING_CACHE_HOURS` | no | Re-checking within this many hours (default `24`) reuses saved results for free |
 | `COMPETITOR_MAX` | no | Most visible competitors analysed per project (default `10`) |
 | `COMPETITOR_DETAILS` | no | `true` (default): 1 free Google Place Details per competitor (cached 7 days) for its review sample; `false`: search-result data only |
+| `COMPETITOR_DETAILS_RESERVE` | no | Competitor lookups stop when only this many Place Details are left (default `10`), so client audits can still run |
 | `SERPAPI_REVIEWS_ENABLED` | no | `false` (default) uses Google's 5 free reviews; `true` uses 2 SerpApi credits per audit for the top 10 |
 | `QUOTA_*` | no | Free-tier safety limits. The app refuses calls above these. |
 
@@ -242,6 +243,8 @@ curl -s -X POST http://127.0.0.1:8000/v1/jobs -H "Content-Type: application/json
    2. **Services & keywords**: tick the core services, add the areas you serve, and choose which keywords are on (the line above the table shows how many SerpApi credits a ranking check will use).
    3. **Rankings** → **Run ranking check**: it first shows how many SerpApi searches the check uses and how many are left, then runs after you confirm.
    4. **Competitors & gaps**: filled in automatically after each ranking check (no SerpApi credits). Every gap is something to *review*, not to copy.
+5. **Full audit** (top right) runs all four steps in one go. It shows the SerpApi cost first, and you can leave the ranking check out (then it uses no SerpApi credits).
+6. **Report ▾** (top right): open the report in the browser, or download it as **PDF** or **CSV** (a zip with one file per section). Reports use saved data only, no credits.
 
 API reference: **http://localhost:8000/docs** (through your tunnel or proxy).
 

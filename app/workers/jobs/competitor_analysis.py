@@ -18,7 +18,8 @@ def _project(ctx: StepContext) -> Project:
 def find_competitors(ctx: StepContext) -> dict:
     """Pick competitors with the brief's rule, snapshot their profiles, rebuild the gap list."""
     project = _project(ctx)
-    ranking_job = ctx.job if ctx.job.job_type == "ranking_check" else None
+    # rankings collected by this job (ranking_check / full_audit), else the latest finished check
+    ranking_job = ctx.job if "collect_rankings" in ctx.results else None
     try:
         return competitors.analyze(ctx.db, project, ctx.job, ranking_job)
     except competitors.NoRankingCheck as exc:

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # 1 Google Place Details per competitor (cached) for its review sample; off = search-result data only
     competitor_details: bool = True
     competitor_details_cache_days: int = 7
+    # competitor lookups stop when only this many Place Details are left (kept for client audits)
+    competitor_details_reserve: int = 10
 
     google_data_ttl_days: int = 30
     http_timeout_seconds: float = 20.0
