@@ -1056,6 +1056,7 @@ timeline
 **Other documents:**
 - [README](../README.md): install and run on Ubuntu.
 - [PRODUCT.md](PRODUCT.md): a short product summary.
+- [SERPAPI_TEST_CASES.md](SERPAPI_TEST_CASES.md): 13 hand tests (with exact links) to check that the Local Pack / Local Finder data matches Google.
 - [ROADMAP.md](ROADMAP.md): phase checklist and verification notes.
 - [DEVELOPERS.md](DEVELOPERS.md): developer guide.
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): the original technical plan.
