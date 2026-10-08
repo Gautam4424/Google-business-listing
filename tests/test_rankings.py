@@ -100,6 +100,9 @@ def setup(db, monkeypatch):
                 return httpx.Response(200, json={"total_searches_left": searches_left,
                                                  "plan_renewal_date": "2026-11-06"})  # fmt: skip
             if path == "/locations.json":
+                if p["q"] == "Australia":
+                    return httpx.Response(200, json=[{"canonical_name": "Australia", "country_code": "AU",
+                                                      "target_type": "Country", "reach": 10**7}])  # fmt: skip
                 return httpx.Response(200, json=LOCATIONS)
             calls.append(dict(p))
             if p["engine"] == "google":
@@ -124,6 +127,79 @@ def _job(db, project, **params):
     db.add(job)
     db.commit()
     return job
+
+
+def _places_centre(monkeypatch, lat, lng):
+    """Google Places answers 'Point Piper, NSW' with the suburb's own point (a place, not a business)."""
+    from app.providers.google_places import GooglePlacesClient
+
+    body = {"places": [{"location": {"latitude": lat, "longitude": lng}, "types": ["locality", "political"],
+                        "formattedAddress": "Point Piper NSW 2027, Australia"}]}  # fmt: skip
+    monkeypatch.setattr(rankings, "get_places_client",
+                        lambda: GooglePlacesClient("g", transport=httpx.MockTransport(
+                            lambda r: httpx.Response(200, json=body))))  # fmt: skip
+
+
+def _decoded_uule(call):
+    return base64.b64decode(call["uule"][2:]).decode()
+
+
+def test_search_from_city_centre(db, setup, monkeypatch):
+    project, use, calls = setup
+    use()
+    _places_centre(monkeypatch, -33.8700, 151.2400)  # suburb centre, not the business pin (-33.867, 151.25)
+    job = run_job(db, _job(db, project, mode="full", search_from="city").id)
+    pack = next(c for c in calls if c["engine"] == "google")
+    assert "latitude_e7:-338700000" in _decoded_uule(pack) and "longitude_e7:1512400000" in _decoded_uule(
+        pack
+    )
+    maps = next(c for c in calls if c["engine"] == "google_maps")
+    assert maps["ll"].startswith("@-33.870000,151.240000,")
+    run = db.query(RankingRun).filter_by(audit_job_id=job.id).first()
+    assert run.search_scope == "city" and "city centre" in run.search_location
+
+
+def test_search_from_business_location(db, setup, monkeypatch):
+    project, use, calls = setup
+    use()
+    _places_centre(monkeypatch, -33.8700, 151.2400)
+    for k in db.query(Keyword).filter_by(project_id=project.id):  # the area's point is elsewhere
+        k.latitude, k.longitude = -33.80, 151.10
+    db.commit()
+    run_job(db, _job(db, project, mode="full", search_from="business").id)
+    pack = next(c for c in calls if c["engine"] == "google")
+    assert "latitude_e7:-338670000" in _decoded_uule(pack)  # the business's own pin (-33.867, 151.25)
+
+
+def test_search_from_whole_country(db, setup):
+    project, use, calls = setup
+    use()
+    job = run_job(db, _job(db, project, mode="full", search_from="country").id)
+    assert job.status == "completed", job.steps
+    pack = next(c for c in calls if c["engine"] == "google")
+    assert pack["location"] == "Australia" and "uule" not in pack
+    finder = next(c for c in calls if c["engine"] != "google")
+    assert finder["engine"] == "google_local" and finder["location"] == "Australia"  # Maps needs a point
+    run = db.query(RankingRun).filter_by(audit_job_id=job.id).first()
+    assert run.search_scope == "country" and run.latitude is None
+
+
+def test_choice_is_remembered_and_changes_compare_like_for_like(client, db, setup, enqueued):
+    project, use, _ = setup
+    use()
+    r = client.post(
+        f"/v1/projects/{project.id}/rankings/run", json={"mode": "full", "search_from": "country"}
+    )
+    assert r.status_code == 202 and r.json()["params"]["search_from"] == "country"
+    db.refresh(project)
+    assert project.search_from == "country"
+    assert client.get(f"/v1/projects/{project.id}/rankings/estimate").json()["search_from"] == "country"
+    run_job(db, enqueued[-1])
+    run_job(db, _job(db, project, mode="full", search_from="city").id)
+    data = client.get(f"/v1/projects/{project.id}/rankings").json()
+    assert data["latest"]["summary"]["search_from"] == "city"
+    assert data["latest"]["summary"].get("visibility_change") is None  # no earlier city check to compare
+    assert [h["search_from"] for h in data["history"]] == ["city", "country"]
 
 
 def test_points_and_parsing():
@@ -311,7 +387,8 @@ def test_endpoints(client, db, setup, enqueued):
     project, use, _ = setup
     use()
     assert client.get(f"/v1/projects/{project.id}/rankings").json() == {
-        "latest": None, "history": [], "top_businesses": [], "live": None, "limit": None, "failed": None
+        "latest": None, "history": [], "top_businesses": [], "live": None, "limit": None, "failed": None,
+        "search_from": "city",
     }  # fmt: skip
     est = client.get(f"/v1/projects/{project.id}/rankings/estimate").json()
     assert est["searches_needed"] == 4 and est["renews_on"] == "2026-11-06"

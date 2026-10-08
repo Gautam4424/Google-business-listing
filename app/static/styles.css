@@ -317,6 +317,7 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .run-mode { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
 .run-mode label { display: flex; gap: 6px; align-items: center; font-weight: 500; }
 .run-cost { margin: 0; font-size: 13.5px; }
+.run-label { font-size: 13px; margin-right: 4px; }
 /* score + history on top, the 7 stat tiles in one even row underneath */
 .vis-row { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "score history" "stats stats"; gap: 16px 24px; align-items: end; margin-bottom: 18px; }
 .vis-score { grid-area: score; }

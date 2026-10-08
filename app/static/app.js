@@ -617,11 +617,19 @@ function rankCell(rank, prev, extra = "") {
   return `<b>#${esc(rank)}</b>${move}${extra}`;
 }
 
+const SEARCH_FROM = {
+  city: { label: "City centre", short: "from the city centre", help: "Like a customer in the middle of the city (e.g. downtown Atlanta)" },
+  country: { label: "Whole country", short: "from the whole country", help: "Like a customer anywhere in the country, e.g. United States" },
+  business: { label: "Business location", short: "from the business location", help: "Like a customer standing at the business's own address" },
+};
+
 function rankingsCard(projectId, data, est) {
   const latest = data.latest;
   const runBox = `<div class="run-box" id="run-box" hidden>
       <div class="run-mode"><label><input type="radio" name="rmode" value="full" ${est?.mode !== "maps_only" ? "checked" : ""}> Full · Local Pack + Maps (2 per keyword)</label>
         <label><input type="radio" name="rmode" value="maps_only" ${est?.mode === "maps_only" ? "checked" : ""}> Maps only (1 per keyword, Local Pack estimated)</label></div>
+      <div class="run-mode"><b class="run-label">Search from</b>
+        ${Object.entries(SEARCH_FROM).map(([v, t]) => `<label title="${esc(t.help)}"><input type="radio" name="rscope" value="${v}" ${(est?.scope || "city") === v ? "checked" : ""}> ${esc(t.label)}</label>`).join("")}</div>
       <p class="run-cost" id="run-cost"></p>
       <div class="toolbar"><button class="btn primary sm" data-action="rank-confirm" data-project="${esc(projectId)}">Run now</button>
         <button class="btn ghost sm" data-action="rank-cancel">Cancel</button></div></div>`;
@@ -633,7 +641,7 @@ function rankingsCard(projectId, data, est) {
       ? `<button class="btn sm" disabled title="${esc(data.limit)}">Limit reached</button>`
       : `<button class="btn ${latest ? "" : "primary"} sm" data-action="rank-run" data-project="${esc(projectId)}">Run ranking check</button>`;
   const head = `<div class="card-head"><div><h2>Rankings</h2>
-      <p class="muted">${latest ? `Last checked ${esc(timeAgo(latest.checked_at))} · ${latest.mode === "maps_only" ? "Maps only (Local Pack estimated)" : "Local Pack + Local Finder"}` : "Where the business appears on Google for its active keywords."}</p></div>
+      <p class="muted">${latest ? `Last checked ${esc(timeAgo(latest.checked_at))} · ${latest.mode === "maps_only" ? "Maps only (Local Pack estimated)" : "Local Pack + Local Finder"} · <b>${esc(SEARCH_FROM[latest.summary.search_from]?.short || "from the area's saved point")}</b>` : "Where the business appears on Google for its active keywords."}</p></div>
       ${runBtn}</div>`;
   // One plain message when a limit is reached: no spinner, no re-checking.
   const notices = (data.limit && !live ? `<div class="notice bad"><b>Limit reached.</b> ${esc(data.limit)}</div>` : "")
@@ -649,12 +657,13 @@ function rankingsCard(projectId, data, est) {
   const change = sm.visibility_change == null ? "" : sm.visibility_change > 0 ? `<span class="pill ok">▲ ${sm.visibility_change}</span>`
     : sm.visibility_change < 0 ? `<span class="pill bad">▼ ${Math.abs(sm.visibility_change)}</span>` : `<span class="pill idle">no change</span>`;
   const rows = latest.keywords.map((k) => `<tr>
-      <td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div></td>
+      <td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div>
+        <div class="muted small" title="Where Google was told the searcher is">📍 searched from ${esc(k.search_scope ? k.search_from : "the area's saved point (older check)")}</div></td>
       <td>${k.local_pack_shown === false ? `<span class="muted">no Local Pack shown</span>` : rankCell(k.local_pack_rank, k.previous_local_pack_rank, k.local_pack_estimated ? ` <span class="tag">est.</span>` : "")}</td>
       <td>${k.local_finder_checked === false ? `<span class="muted">not checked (limit)</span>` : rankCell(k.local_finder_rank, k.previous_local_finder_rank)}</td>
       <td class="num">${esc(k.visibility)}</td></tr>`).join("");
   const history = data.history.length > 1
-    ? `<div class="history">${data.history.slice().reverse().map((h) => `<span title="${esc(fullTime(h.checked_at))}"><i style="height:${Math.max(4, h.visibility_score)}%"></i><small>${esc(Math.round(h.visibility_score))}</small></span>`).join("")}</div>` : "";
+    ? `<div class="history">${data.history.slice().reverse().map((h) => `<span title="${esc(fullTime(h.checked_at))} · ${esc(SEARCH_FROM[h.search_from]?.short || "from the area's saved point")}"><i style="height:${Math.max(4, h.visibility_score)}%"></i><small>${esc(Math.round(h.visibility_score))}</small></span>`).join("")}</div>` : "";
   const top = data.top_businesses.map((b) => `<li class="${b.is_client ? "is-client" : ""}"><span>${esc(b.business_name)}${b.is_client ? ` <span class="tag">you</span>` : ""}</span>
       <span class="muted small">${esc(b.appearances)}× · best #${esc(b.best_rank)}${b.local_pack ? ` · ${esc(b.local_pack)} Local Pack` : ""}</span></li>`).join("");
   return body(`${live ? `<div class="label" style="margin-top:6px">Previous check</div>` : ""}
@@ -703,7 +712,7 @@ function liveCheck(live) {
     <div class="live-head"><b>Live check</b><span class="muted small">${esc(stage)}</span></div>
     <div class="live-bar"><span style="width:${pct}%"></span></div>
     <div class="table-wrap"><table class="rank-table"><thead><tr><th>Keyword</th><th>Local Pack</th><th>Local Finder</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="muted small" style="margin:6px 0 0">Results appear keyword by keyword. If a limit is reached, the keywords done so far are kept.</p></div>`;
+    <p class="muted small" style="margin:6px 0 0">Searching ${esc(SEARCH_FROM[live.search_from]?.short || "")}. Results appear keyword by keyword. If a limit is reached, the keywords done so far are kept.</p></div>`;
 }
 
 async function renderRankingSection(project) {
@@ -717,8 +726,9 @@ async function renderRankingSection(project) {
       cost: holder.querySelector("#run-cost")?.innerHTML || "",
       blocked: holder.querySelector('[data-action="rank-confirm"]')?.disabled,
       mode: box.querySelector('input[name="rmode"]:checked')?.value,
+      scope: box.querySelector('input[name="rscope"]:checked')?.value,
     } : null;
-    holder.innerHTML = rankingsCard(project.id, data, { mode: kept?.mode || data.latest?.mode });
+    holder.innerHTML = rankingsCard(project.id, data, { mode: kept?.mode || data.latest?.mode, scope: kept?.scope || data.search_from });
     const fresh = holder.querySelector("#run-box");
     if (kept && fresh && !data.live) {
       fresh.hidden = false;
@@ -847,10 +857,11 @@ async function showRunCost(projectId) {
   if (!box) return;
   box.hidden = false;
   const mode = box.querySelector('input[name="rmode"]:checked')?.value || "full";
+  const scope = box.querySelector('input[name="rscope"]:checked')?.value || "city";
   const cost = document.getElementById("run-cost");
   cost.innerHTML = `<span class="spinner"></span> Checking credits…`;
   try {
-    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}`);
+    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}&search_from=${scope}`);
     const go = box.querySelector('[data-action="rank-confirm"]');
     if (!e.can_start) {  // nothing can run: say so once, plainly
       cost.innerHTML = `<span class="bad-text"><b>Limit reached.</b> ${esc(e.limit_message || "No SerpApi searches left.")}</span>`;
@@ -860,7 +871,8 @@ async function showRunCost(projectId) {
     cost.innerHTML = `This check uses <b>${e.searches_needed}</b> SerpApi search${e.searches_needed === 1 ? "" : "es"} for <b>${e.active_keywords}</b> active keyword${e.active_keywords === 1 ? "" : "s"}`
       + (e.searches_from_cache ? ` (${e.searches_from_cache} reused free from the last ${24} h)` : "")
       + ` · <b>${e.credits_left}</b> left${e.renews_on ? ` · renews ${esc(e.renews_on)}` : ""}.`
-      + (e.enough ? "" : ` <span class="warn-text">Only ${e.credits_left} left: it runs keyword by keyword (Local Pack first) and stops at the limit, keeping the keywords done so far.</span>`);
+      + (e.enough ? "" : ` <span class="warn-text">Only ${e.credits_left} left: it runs keyword by keyword (Local Pack first) and stops at the limit, keeping the keywords done so far.</span>`)
+      + (e.search_points?.length ? `<br><span class="muted">📍 Searching from: ${e.search_points.map(esc).join(" · ")}</span>` : "");
     go.disabled = e.active_keywords === 0;
   } catch (err) {
     cost.textContent = err.message;
@@ -1541,9 +1553,10 @@ document.addEventListener("click", (e) => {
   }
   if (action?.dataset.action === "rank-confirm") {
     const mode = document.querySelector('#run-box input[name="rmode"]:checked')?.value || "full";
+    const scope = document.querySelector('#run-box input[name="rscope"]:checked')?.value || "city";
     action.disabled = true;
     action.innerHTML = `<span class="spinner"></span>Starting…`;
-    return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode }) }),
+    return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode, search_from: scope }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
   if (action?.dataset.action === "setting-reset") {
@@ -1643,7 +1656,7 @@ document.addEventListener("change", (e) => {
     if (pid1) showFullCost(pid1);
     return;
   }
-  if (e.target.name === "rmode") {
+  if (e.target.name === "rmode" || e.target.name === "rscope") {
     const pid0 = location.hash.split("/")[1];
     if (pid0) showRunCost(pid0);
     return;

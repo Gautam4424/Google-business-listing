@@ -24,6 +24,8 @@ class Project(IdMixin, TimestampMixin, Base):
     # [{"name": "Manchester, UK", "latitude": 53.48, "longitude": -2.24}]
     service_areas: Mapped[list] = mapped_column(JSONType, default=list)
     user_keywords: Mapped[list] = mapped_column(JSONType, default=list)
+    # Where ranking checks search from: city (city centre) | country (whole country) | business (its own pin)
+    search_from: Mapped[str] = mapped_column(String(10), default="city", server_default="city")
     settings: Mapped[dict] = mapped_column(JSONType, default=dict)
     client_business_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("businesses.id", ondelete="SET NULL")

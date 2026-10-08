@@ -1,8 +1,12 @@
 """Phase 7: Local Pack + Local Finder rank tracking and visibility metrics (brief §2).
 
-Per active keyword and check:
-  Local Pack   -> SerpApi engine=google (device, gl/hl, canonical `location` of the city)   1 search
-  Local Finder -> SerpApi engine=google_maps (`ll=@lat,lng,zoom` = keyword coordinates)     1 search
+Per active keyword and check, searched from the chosen point ("search from"):
+  city     -> the city/suburb centre (Google's point for that place)        [default]
+  country  -> the whole country (a named place, no map point)
+  business -> the business's own map pin
+  Local Pack   -> SerpApi engine=google (mobile, gl/hl, uule = point, or `location` = named place)   1 search
+  Local Finder -> SerpApi engine=google_maps around the point (`ll=@lat,lng,zoom`);
+                  for the whole country: engine=google_local (Google's "More places" list)        1 search
 "maps_only" mode skips the Local Pack search and estimates it from the Maps top 3.
 Every business returned is stored (Phase 8 builds competitors from it).
 Re-checks within RANKING_CACHE_HOURS reuse the saved response for free.
@@ -22,10 +26,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import AuditJob, GbpProfile, Keyword, Project, RankingResult, RankingRun
+from app.models import AuditJob, BusinessLocation, GbpProfile, Keyword, Project, RankingResult, RankingRun
 from app.models.base import utcnow
-from app.providers import get_serpapi_client
+from app.providers import get_places_client, get_serpapi_client
 from app.providers.base import ProviderError
+from app.providers.google_places import PROVIDER as PLACES
 from app.services import quota
 from app.services.keywords import city_label
 from app.services.nap import clean_name, normalize_phone, postcode
@@ -204,23 +209,133 @@ def coordinate_uule(lat: float, lng: float) -> str:
     return "a+" + base64.b64encode("\n".join(lines).encode()).decode()
 
 
-def search_params(kind: str, kw: Keyword, location: str | None) -> dict:
-    has_coords = kw.latitude is not None and kw.longitude is not None
+# ---------- where a check searches from ----------
+
+SCOPES = ("city", "country", "business")
+SCOPE_LABEL = {"city": "city centre", "country": "whole country", "business": "business location"}
+COUNTRY_NAMES = {
+    "US": "United States", "CA": "Canada", "GB": "United Kingdom", "AU": "Australia", "NZ": "New Zealand",
+    "IN": "India", "IE": "Ireland", "ZA": "South Africa", "AE": "United Arab Emirates", "SG": "Singapore",
+    "DE": "Germany", "FR": "France", "ES": "Spain", "IT": "Italy", "NL": "Netherlands", "MX": "Mexico",
+    "BR": "Brazil", "PH": "Philippines", "MY": "Malaysia", "PK": "Pakistan", "NG": "Nigeria",
+}  # fmt: skip
+CITY_FIELDS = "places.location,places.formattedAddress,places.displayName,places.types"
+
+
+@dataclass
+class SearchPoint:
+    """Where Google is told the searcher is: a point (city centre / business) or a named place (country)."""
+
+    scope: str
+    label: str
+    lat: float | None = None
+    lng: float | None = None
+    location: str | None = None  # SerpApi canonical location name, when searching from a named place
+
+
+def city_centre(db: Session, area_name: str, country: str | None) -> tuple[float, float, str] | None:
+    """The centre of a city/suburb (Google's own point for that place), not a business inside it.
+
+    1 Places Text Search per area, cached 30 days (0 SerpApi). Prefers a result that is a place
+    (locality / sublocality / neighbourhood), never a business.
+    """
+    client = get_places_client()
+    if client is None:
+        return None
+    params = {"textQuery": area_name, "fieldMask": CITY_FIELDS, "regionCode": (country or "").upper()}
+    cached = get_cached(db, PLACES, "places:searchText:city", params, timedelta(days=30))
+    if cached is not None:
+        data = cached.response or {}
+    else:
+        try:
+            quota.consume(db, "google_places_text_search")
+            extra = {"regionCode": country.upper()} if country else {}
+            data = client.search_text(area_name, field_mask=CITY_FIELDS, page_size=3, **extra)
+        except (quota.QuotaExceeded, ProviderError, httpx.HTTPError):
+            db.rollback()
+            return None
+        store_response(db, PLACES, "places:searchText:city", params, data, 200, ttl=timedelta(days=30))
+    place_types = {"locality", "sublocality", "sublocality_level_1", "neighborhood", "postal_town",
+                   "administrative_area_level_2", "administrative_area_level_3", "political"}  # fmt: skip
+    for p in data.get("places") or []:
+        if p.get("location") and place_types & set(p.get("types") or []):
+            loc = p["location"]
+            return loc["latitude"], loc["longitude"], p.get("formattedAddress") or area_name
+    return None
+
+
+def _business_pin(db: Session, project: Project) -> tuple[float, float] | None:
+    if project.client_business_id is None:
+        return None
+    pin = db.scalar(
+        select(BusinessLocation).where(BusinessLocation.business_id == project.client_business_id)
+    )
+    return (pin.latitude, pin.longitude) if pin and pin.latitude is not None else None
+
+
+def search_points(db: Session, project: Project, keywords: list[Keyword], scope: str, client) -> dict:
+    """keyword_id -> SearchPoint for this check. Cached lookups only (city: Places; country: free list)."""
+    scope = scope if scope in SCOPES else "city"
+    out: dict = {}
+    cities: dict[str, SearchPoint] = {}
+    pin = _business_pin(db, project) if scope == "business" else None
+    for kw in keywords:
+        country = (kw.country or project.country or "").upper()
+        if scope == "country":
+            name = COUNTRY_NAMES.get(country, country)
+            canonical = resolve_location(db, client, name, country) if client else None
+            out[kw.id] = SearchPoint(
+                "country", f"{canonical or name} (whole country)", location=canonical or name
+            )
+            continue
+        if scope == "business" and pin:
+            out[kw.id] = SearchPoint(
+                "business", f"business location ({pin[0]:.4f}, {pin[1]:.4f})", pin[0], pin[1]
+            )
+            continue
+        # city centre (also the fallback when a business has no map pin)
+        if kw.location_name not in cities:
+            centre = city_centre(db, kw.location_name, country)
+            if centre:
+                cities[kw.location_name] = SearchPoint(
+                    "city",
+                    f"{kw.location_name} city centre ({centre[0]:.4f}, {centre[1]:.4f})",
+                    centre[0],
+                    centre[1],
+                )
+            elif kw.latitude is not None:  # no city found: the area's saved point
+                cities[kw.location_name] = SearchPoint(
+                    "city",
+                    f"{kw.location_name} ({kw.latitude:.4f}, {kw.longitude:.4f})",
+                    kw.latitude,
+                    kw.longitude,
+                )
+            else:
+                named = resolve_location(db, client, kw.location_name, country) if client else None
+                cities[kw.location_name] = SearchPoint("city", named or kw.location_name, location=named)
+        out[kw.id] = cities[kw.location_name]
+    return out
+
+
+def search_params(kind: str, kw: Keyword, point: SearchPoint) -> dict:
+    has_coords = point.lat is not None and point.lng is not None
     if kind == "local_pack":
         params = {"engine": "google", "q": kw.keyword, "gl": kw.country.lower(), "hl": kw.language,
                   "device": kw.device}  # fmt: skip
         if has_coords:
-            params["uule"] = coordinate_uule(kw.latitude, kw.longitude)
-        elif location:
-            params["location"] = location
+            params["uule"] = coordinate_uule(point.lat, point.lng)
+        elif point.location:
+            params["location"] = point.location
         return params
-    params = {"engine": "google_maps", "type": "search", "q": kw.keyword, "hl": kw.language,
-              "gl": kw.country.lower()}  # fmt: skip
-    if has_coords:
-        params["ll"] = f"@{kw.latitude:.6f},{kw.longitude:.6f},{get_settings().maps_zoom}z"
-    elif "near me" not in kw.keyword.lower():
-        params["q"] = f"{kw.keyword} {city_label(kw.location_name)}"
-    return params
+    if not has_coords:
+        # No map point (whole country): Google's Local Finder list ("More places") searched from that place
+        params = {"engine": "google_local", "q": kw.keyword, "gl": kw.country.lower(), "hl": kw.language}
+        if point.location:
+            params["location"] = point.location
+        return params
+    ll = f"@{point.lat:.6f},{point.lng:.6f},{get_settings().maps_zoom}z"
+    return {"engine": "google_maps", "type": "search", "q": kw.keyword, "hl": kw.language,
+            "gl": kw.country.lower(), "ll": ll}  # fmt: skip
 
 
 def _kinds(mode: str) -> list[str]:
@@ -239,21 +354,27 @@ def _cache_age() -> timedelta:
     return timedelta(hours=get_settings().ranking_cache_hours)
 
 
-def estimate(db: Session, project: Project, mode: str | None = None, force: bool = False) -> dict:
+def scope_of(project: Project, requested: str | None = None) -> str:
+    """The "search from" choice: the one asked for, else the project's last choice, else city centre."""
+    for value in (requested, getattr(project, "search_from", None)):
+        if value in SCOPES:
+            return value
+    return "city"
+
+
+def estimate(
+    db: Session, project: Project, mode: str | None = None, force: bool = False, scope: str | None = None
+) -> dict:
     """Credits a check would use (cached searches are free) vs what is really left on SerpApi."""
     mode = mode or get_settings().ranking_mode
+    scope = scope_of(project, scope)
     client = get_serpapi_client()
     keywords = active_keywords(db, project)
-    locations: dict[str, str | None] = {}
+    points = search_points(db, project, keywords, scope, client)
     needed = cached = 0
     for kw in keywords:
         for kind in _kinds(mode):
-            loc = None
-            if kind == "local_pack" and client is not None and kw.latitude is None:
-                if kw.location_name not in locations:
-                    locations[kw.location_name] = resolve_location(db, client, kw.location_name, kw.country)
-                loc = locations[kw.location_name]
-            params = search_params(kind, kw, loc)
+            params = search_params(kind, kw, points[kw.id])
             if not force and get_cached(db, "serpapi", f"search:{params['engine']}", params, _cache_age()):
                 cached += 1
             else:
@@ -269,6 +390,8 @@ def estimate(db: Session, project: Project, mode: str | None = None, force: bool
     available = min(app_left, real_left) if real_left is not None else app_left
     return {
         "mode": mode,
+        "search_from": scope,
+        "search_points": sorted({p.label for p in points.values()}),
         "active_keywords": len(keywords),
         "searches_needed": needed,
         "searches_from_cache": cached,
@@ -308,9 +431,15 @@ def _search(db: Session, client, params: dict, force: bool) -> tuple[dict, bool,
 
 
 def run_check(
-    db: Session, project: Project, job: AuditJob, mode: str | None = None, force: bool = False
+    db: Session,
+    project: Project,
+    job: AuditJob,
+    mode: str | None = None,
+    force: bool = False,
+    scope: str | None = None,
 ) -> dict:
     mode = mode or get_settings().ranking_mode
+    scope = scope_of(project, scope)
     client = get_serpapi_client()
     if client is None:
         raise RuntimeError("SERPAPI_KEY is not set")
@@ -319,7 +448,7 @@ def run_check(
     if not keywords:
         raise ValueError("No active keywords: generate keywords and switch some on first")
 
-    locations: dict[str, str | None] = {}
+    points = search_points(db, project, keywords, scope, client)
     made = reused = 0
     errors: list[str] = []
     stopped: str | None = None  # set when a free-tier limit is reached: the remaining searches are skipped
@@ -330,20 +459,16 @@ def run_check(
         if stopped:
             break
         for kind in _kinds(mode):
-            loc = None
-            if kind == "local_pack" and kw.latitude is None:  # named location only without coordinates
-                if kw.location_name not in locations:
-                    locations[kw.location_name] = resolve_location(db, client, kw.location_name, kw.country)
-                loc = locations[kw.location_name]
-            params = search_params(kind, kw, loc)
+            point = points[kw.id]
+            params = search_params(kind, kw, point)
+            radius = None if point.lat is None else UULE_RADIUS if kind == "local_pack" else _zoom_radius(
+                get_settings().maps_zoom)  # fmt: skip
             run = RankingRun(
                 project_id=project.id, keyword_id=kw.id, audit_job_id=job.id, checked_at=utcnow(),
                 provider="serpapi", result_type=kind, country=kw.country, language=kw.language,
-                device=kw.device, location_name=kw.location_name, latitude=kw.latitude,
-                longitude=kw.longitude, keyword=kw.keyword,
-                search_location=params.get("location") or params.get("ll")
-                or (f"@{kw.latitude:.6f},{kw.longitude:.6f}" if "uule" in params else None),
-                search_radius_meters=None if kind == "local_pack" else _zoom_radius(get_settings().maps_zoom),
+                device=kw.device, location_name=kw.location_name, latitude=point.lat, longitude=point.lng,
+                keyword=kw.keyword, search_location=point.label[:300], search_scope=point.scope,
+                search_radius_meters=radius,
             )  # fmt: skip
             try:
                 data, from_cache, raw_id = _search(db, client, params, force)
@@ -413,6 +538,7 @@ def live_check(db: Session, project: Project) -> dict | None:
         "status": job.status,
         "step": step,
         "mode": mode,
+        "search_from": job_scope(job),
         "keywords_total": len(keywords),
         "keywords_done": sum(1 for i in items if not i.get("pending")),
         "searches_done": runs_done,
@@ -478,6 +604,8 @@ def keyword_rows(db: Session, runs: list[RankingRun], mode: str) -> list[dict]:
             "local_finder_rank": finder_rank,
             # False = that search was not made (the check stopped at a limit after the Local Pack)
             "local_finder_checked": finder is not None,
+            "search_from": ref.search_location,
+            "search_scope": ref.search_scope,
             "points": points,
             "visibility": round(points / MAX_POINTS * 100, 1),
             "failed": any(k.status != "succeeded" for k in kinds.values()),
@@ -519,10 +647,22 @@ def ranking_checks(db: Session, project: Project, limit: int = 12) -> list[Audit
     ).all()
 
 
+def job_scope(job: AuditJob) -> str | None:
+    """Where a check searched from (None: checks made before the choice existed)."""
+    return (job.params or {}).get("search_from")
+
+
+def previous_check(checks: list[AuditJob], job: AuditJob) -> AuditJob | None:
+    """The check before `job` made from the same place: changes are only measured like for like."""
+    older = [j for j in checks if j.created_at < job.created_at and j.id != job.id]
+    return next((j for j in older if job_scope(j) == job_scope(job)), None)
+
+
 def check_report(db: Session, project: Project, job: AuditJob, previous: AuditJob | None) -> dict:
     mode = (job.params or {}).get("mode") or get_settings().ranking_mode
     rows = keyword_rows(db, _runs_for_job(db, job.id), mode)
     summary = summarize(rows)
+    summary["search_from"] = job_scope(job)
     if previous is not None:
         prev_rows = {r["keyword_id"]: r for r in keyword_rows(db, _runs_for_job(db, previous.id), mode)}
         # Compare like with like: only keywords checked both times.

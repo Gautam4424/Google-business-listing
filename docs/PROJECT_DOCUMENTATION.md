@@ -547,6 +547,19 @@ flowchart TB
 
 **Change over time** is compared only over the keywords checked both times, so adding a keyword never creates a fake jump.
 
+**Search from (you choose, in the "Run ranking check" box):**
+
+| Choice | Google is told the searcher is… | Example (OVO Painting, Atlanta) | Map search |
+|---|---|---|---|
+| **City centre** (default) | at the centre of the keyword's city/suburb (Google's own point for that place) | downtown Atlanta (33.7501, −84.3885) | Google Maps around that point |
+| **Whole country** | somewhere in the country (no exact point) | United States | Google's Local Finder list (“More places”) for the country |
+| **Business location** | at the business's own map pin | OVO's office (33.8933, −84.3819) | Google Maps around the pin |
+
+- **Your choice is remembered** for the project, and the full audit uses it too.
+- **Results are labelled:** every result shows "📍 searched from …".
+- **Change is like for like:** "change since last check" only compares checks made from the **same** place.
+- **Why it matters:** searching from the business's own address flatters it, because Google favours nearby businesses. **City centre** shows what a typical customer in that city sees.
+
 **Live results and limits:**
 - **Results appear as they arrive.** The check runs **keyword by keyword, Local Pack first**, and each result appears straight away in the Rankings section's **Live check** table (with a progress bar).
 - **A limit part-way keeps what was found.** If a free-tier limit is reached during the check (e.g. on keyword 2), it **stops** there: keyword 1's results are kept, a Maps search that didn't run shows "not checked (limit)", and the card explains "Limit reached after 1 of 2 keywords…".

@@ -23,6 +23,9 @@ class FullAuditOptions(BaseModel):
     rankings: bool = Field(True, description="Include a ranking check (SerpApi: 2 per active keyword)")
     mode: Literal["full", "maps_only"] | None = None
     top10_reviews: bool | None = Field(None, description="Top 10 reviews via SerpApi (2 credits)")
+    search_from: Literal["city", "country", "business"] | None = Field(
+        None, description="Where the ranking check searches from (default: the project's last choice)"
+    )
 
 
 def _project(db: Session, project_id: uuid.UUID) -> Project:
@@ -49,15 +52,20 @@ def run_full_audit(
     if opts.top10_reviews is not None:
         params["top10_reviews"] = opts.top10_reviews
     if opts.rankings:
-        est = rankings.estimate(db, project, opts.mode)
+        est = rankings.estimate(db, project, opts.mode, scope=opts.search_from)
         params["mode"] = est["mode"]
+        params["search_from"] = est["search_from"]
         if est["active_keywords"] and not est["can_start"]:
             raise HTTPException(
                 422,
                 f"{est['limit_message'] or 'No SerpApi searches left'}. Run the full audit without the "
                 "ranking check, or wait for the reset.",
             )
-    return start_job(db, "full_audit", project.id, params)
+    job = start_job(db, "full_audit", project.id, params)
+    if opts.rankings:
+        project.search_from = params["search_from"]
+        db.commit()
+    return job
 
 
 def _filename(data: dict, ext: str) -> str:

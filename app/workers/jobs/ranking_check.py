@@ -15,7 +15,9 @@ def _project(ctx: StepContext) -> Project:
 
 def check_budget(ctx: StepContext) -> dict:
     params = ctx.job.params or {}
-    est = rankings.estimate(ctx.db, _project(ctx), params.get("mode"), params.get("force", False))
+    est = rankings.estimate(
+        ctx.db, _project(ctx), params.get("mode"), params.get("force", False), params.get("search_from")
+    )
     if not est["serpapi_configured"]:
         raise RuntimeError("SERPAPI_KEY is not set")
     if est["active_keywords"] == 0:
@@ -33,7 +35,12 @@ def check_budget(ctx: StepContext) -> dict:
 def collect_rankings(ctx: StepContext) -> dict:
     params = ctx.job.params or {}
     result = rankings.run_check(
-        ctx.db, _project(ctx), ctx.job, params.get("mode"), params.get("force", False)
+        ctx.db,
+        _project(ctx),
+        ctx.job,
+        params.get("mode"),
+        params.get("force", False),
+        params.get("search_from"),
     )
     saved = result["searches_made"] + result["searches_from_cache"]
     if not saved:
@@ -52,7 +59,7 @@ def collect_rankings(ctx: StepContext) -> dict:
 
 def compute_visibility(ctx: StepContext) -> dict:
     project = _project(ctx)
-    previous = next((j for j in rankings.ranking_checks(ctx.db, project) if j.id != ctx.job.id), None)
+    previous = rankings.previous_check(rankings.ranking_checks(ctx.db, project), ctx.job)
     return rankings.check_report(ctx.db, project, ctx.job, previous)["summary"]
 
 
