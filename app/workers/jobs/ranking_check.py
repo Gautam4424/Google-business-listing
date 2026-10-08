@@ -16,8 +16,9 @@ def _project(ctx: StepContext) -> Project:
 def check_budget(ctx: StepContext) -> dict:
     params = ctx.job.params or {}
     est = rankings.estimate(
-        ctx.db, _project(ctx), params.get("mode"), params.get("force", False), params.get("search_from")
-    )
+        ctx.db, _project(ctx), params.get("mode"), params.get("force", False), params.get("search_from"),
+        params.get("here"),
+    )  # fmt: skip
     if not est["serpapi_configured"]:
         raise RuntimeError("SERPAPI_KEY is not set")
     if est["active_keywords"] == 0:
@@ -41,6 +42,7 @@ def collect_rankings(ctx: StepContext) -> dict:
         params.get("mode"),
         params.get("force", False),
         params.get("search_from"),
+        params.get("here"),
     )
     saved = result["searches_made"] + result["searches_from_cache"]
     if not saved:

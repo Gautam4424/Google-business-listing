@@ -656,7 +656,24 @@ const SEARCH_FROM = {
   city: { label: "City centre", short: "from the city centre", help: "Like a customer in the middle of the city (e.g. downtown Atlanta)" },
   country: { label: "Whole country", short: "from the whole country", help: "Like a customer anywhere in the country, e.g. United States" },
   business: { label: "Business location", short: "from the business location", help: "Like a customer standing at the business's own address" },
+  current: { label: "My current location", short: "from your location", help: "Where you are now (your browser asks for permission once)" },
 };
+
+// The browser's location for "My current location" (asked once, reused for 10 minutes).
+let myPoint = null;
+function getMyLocation() {
+  if (myPoint && Date.now() - myPoint.at < 600000) return Promise.resolve(myPoint);
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("This browser cannot share its location."));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve((myPoint = { lat: p.coords.latitude, lng: p.coords.longitude, at: Date.now() })),
+      (e) => reject(new Error(e.code === 1
+        ? "Location access was blocked. Allow it for this site (padlock in the address bar → Location → Allow), then choose this option again."
+        : "Your location could not be found right now. Try again, or choose another option.")),
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+    );
+  });
+}
 
 function rankingsCard(projectId, data, est) {
   const latest = data.latest;
@@ -898,10 +915,22 @@ async function showRunCost(projectId) {
   const mode = box.querySelector('input[name="rmode"]:checked')?.value || "full";
   const scope = box.querySelector('input[name="rscope"]:checked')?.value || "city";
   const cost = document.getElementById("run-cost");
+  const go = box.querySelector('[data-action="rank-confirm"]');
+  let where = "";
+  if (scope === "current") {
+    cost.innerHTML = `<span class="spinner"></span> Getting your location…`;
+    try {
+      const me = await getMyLocation();
+      where = `&lat=${me.lat}&lng=${me.lng}`;
+    } catch (err) {
+      cost.innerHTML = `<span class="bad-text">${esc(err.message)}</span>`;
+      go.disabled = true;
+      return;
+    }
+  }
   cost.innerHTML = `<span class="spinner"></span> Checking credits…`;
   try {
-    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}&search_from=${scope}`);
-    const go = box.querySelector('[data-action="rank-confirm"]');
+    const e = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/estimate?mode=${mode}&search_from=${scope}${where}`);
     if (!e.can_start) {  // nothing can run: say so once, plainly
       cost.innerHTML = `<span class="bad-text"><b>Limit reached.</b> ${esc(e.limit_message || "No SerpApi searches left.")}</span>`;
       go.disabled = true;
@@ -1593,9 +1622,10 @@ document.addEventListener("click", (e) => {
   if (action?.dataset.action === "rank-confirm") {
     const mode = document.querySelector('#run-box input[name="rmode"]:checked')?.value || "full";
     const scope = document.querySelector('#run-box input[name="rscope"]:checked')?.value || "city";
+    const here = scope === "current" && myPoint ? { lat: myPoint.lat, lng: myPoint.lng } : undefined;
     action.disabled = true;
     action.innerHTML = `<span class="spinner"></span>Starting…`;
-    return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode, search_from: scope }) }),
+    return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode, search_from: scope, here }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
   if (action?.dataset.action === "kw-results") {

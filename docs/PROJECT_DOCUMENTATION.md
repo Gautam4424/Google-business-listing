@@ -554,6 +554,13 @@ flowchart TB
 | **City centre** (default) | at the centre of the keyword's city/suburb (Google's own point for that place) | downtown Atlanta (33.7501, −84.3885) | Google Maps around that point |
 | **Whole country** | somewhere in the country (no exact point) | United States | Google's Local Finder list (“More places”) for the country |
 | **Business location** | at the business's own map pin | OVO's office (33.8933, −84.3819) | Google Maps around the pin |
+| **My current location** | where **you** are now (your browser shares it after asking once) | e.g. Ghaziabad (28.6692, 77.4538) | Google Maps around you |
+
+"My current location":
+- **Use it to compare** the app with what you see in your own Google search.
+- **Not saved as the project default.** The full audit uses one of the other three.
+- **The country setting stays the business's** (e.g. US).
+- **The browser only shares location with `http://localhost` (the SSH tunnel) or `https://` addresses.** If you blocked it: padlock in the address bar → Location → Allow.
 
 - **Your choice is remembered** for the project, and the full audit uses it too.
 - **Results are labelled:** every result shows "📍 searched from …".

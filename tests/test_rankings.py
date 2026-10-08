@@ -202,6 +202,33 @@ def test_choice_is_remembered_and_changes_compare_like_for_like(client, db, setu
     assert [h["search_from"] for h in data["history"]] == ["city", "country"]
 
 
+def test_search_from_my_current_location(client, db, setup, enqueued):
+    project, use, calls = setup
+    use()
+    url = f"/v1/projects/{project.id}/rankings"
+    # needs the browser's location; never becomes the project's default
+    assert client.post(f"{url}/run", json={"search_from": "current"}).status_code == 422
+    assert (
+        client.post(f"{url}/run", json={"search_from": "current", "here": {"lat": 120, "lng": 0}}).status_code
+        == 422
+    )
+    est = client.get(f"{url}/estimate?search_from=current&lat=28.6692&lng=77.4538").json()
+    assert est["search_from"] == "current" and est["search_points"] == [
+        "your current location (28.6692, 77.4538)"
+    ]
+    r = client.post(f"{url}/run", json={"search_from": "current", "here": {"lat": 28.6692, "lng": 77.4538}})
+    assert r.status_code == 202 and r.json()["params"]["here"] == {"lat": 28.6692, "lng": 77.4538}
+    db.refresh(project)
+    assert project.search_from == "city"
+    run_job(db, enqueued[-1])
+    pack = next(c for c in calls if c["engine"] == "google")
+    assert "latitude_e7:286692000" in _decoded_uule(pack) and pack["gl"] == "au"  # business's country kept
+    maps = next(c for c in calls if c["engine"] == "google_maps")
+    assert maps["ll"].startswith("@28.669200,77.453800,")
+    run = db.query(RankingRun).filter_by(audit_job_id=uuid.UUID(r.json()["id"])).first()
+    assert run.search_scope == "current" and "your current location" in run.search_location
+
+
 def test_full_results_per_keyword(client, db, setup):
     project, use, _ = setup
     use()

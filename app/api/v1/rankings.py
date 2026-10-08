@@ -3,7 +3,7 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,12 @@ from app.services import rankings
 
 router = APIRouter(prefix="/projects/{project_id}/rankings", tags=["rankings"])
 
-SearchFrom = Literal["city", "country", "business"]
+SearchFrom = Literal["city", "country", "business", "current"]
+
+
+class Here(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
 
 
 class RunOptions(BaseModel):
@@ -23,8 +28,18 @@ class RunOptions(BaseModel):
     force: bool = False  # ignore the saved results from the last RANKING_CACHE_HOURS
     search_from: SearchFrom | None = Field(
         None,
-        description="city centre | whole country | business location (default: the project's last choice)",
+        description="city centre | whole country | business location | current = your browser's location "
+        "(needs `here`). Default: the project's last choice",
     )
+    here: Here | None = Field(None, description="Your location from the browser, for search_from=current")
+
+
+def _here(search_from: str | None, here: dict | None) -> dict | None:
+    if search_from != "current":
+        return None
+    if here is None:
+        raise HTTPException(422, "Your current location is needed: allow location access in the browser")
+    return here
 
 
 def _project(db: Session, project_id: uuid.UUID) -> Project:
@@ -40,10 +55,16 @@ def get_estimate(
     mode: Literal["full", "maps_only"] | None = None,
     force: bool = False,
     search_from: SearchFrom | None = None,
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
     db: Session = Depends(get_db),
 ) -> dict:
-    """SerpApi searches a check would use (saved = free), how many are left, and the search points."""
-    return rankings.estimate(db, _project(db, project_id), mode, force, search_from)
+    """SerpApi searches a check would use (saved = free), how many are left, and the search points.
+
+    For search_from=current, pass the browser's location as `lat` and `lng`.
+    """
+    here = _here(search_from, {"lat": lat, "lng": lng} if lat is not None and lng is not None else None)
+    return rankings.estimate(db, _project(db, project_id), mode, force, search_from, here)
 
 
 @router.post("/run", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
@@ -59,7 +80,8 @@ def run_rankings(
     """
     project = _project(db, project_id)
     opts = body or RunOptions()
-    est = rankings.estimate(db, project, opts.mode, opts.force, opts.search_from)
+    here = _here(opts.search_from, opts.here.model_dump() if opts.here else None)
+    est = rankings.estimate(db, project, opts.mode, opts.force, opts.search_from, here)
     if not est["serpapi_configured"]:
         raise HTTPException(422, "SERPAPI_KEY is not set")
     if est["active_keywords"] == 0:
@@ -67,9 +89,12 @@ def run_rankings(
     if not est["can_start"]:
         raise HTTPException(422, est["limit_message"] or "No SerpApi searches left")
     params = {"mode": est["mode"], "force": opts.force, "search_from": est["search_from"]}
+    if here:
+        params["here"] = here
     job = start_job(db, "ranking_check", project.id, params)
-    project.search_from = est["search_from"]  # remembered for the next check and the full audit
-    db.commit()
+    if est["search_from"] in rankings.SAVED_SCOPES:  # remembered for the next check and the full audit
+        project.search_from = est["search_from"]
+        db.commit()
     return job
 
 

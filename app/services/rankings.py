@@ -211,8 +211,10 @@ def coordinate_uule(lat: float, lng: float) -> str:
 
 # ---------- where a check searches from ----------
 
-SCOPES = ("city", "country", "business")
-SCOPE_LABEL = {"city": "city centre", "country": "whole country", "business": "business location"}
+SCOPES = ("city", "country", "business", "current")
+SCOPE_LABEL = {"city": "city centre", "country": "whole country", "business": "business location",
+               "current": "your current location"}  # fmt: skip
+SAVED_SCOPES = ("city", "country", "business")  # "current" needs the browser's location: never a default
 COUNTRY_NAMES = {
     "US": "United States", "CA": "Canada", "GB": "United Kingdom", "AU": "Australia", "NZ": "New Zealand",
     "IN": "India", "IE": "Ireland", "ZA": "South Africa", "AE": "United Arab Emirates", "SG": "Singapore",
@@ -273,9 +275,29 @@ def _business_pin(db: Session, project: Project) -> tuple[float, float] | None:
     return (pin.latitude, pin.longitude) if pin and pin.latitude is not None else None
 
 
-def search_points(db: Session, project: Project, keywords: list[Keyword], scope: str, client) -> dict:
-    """keyword_id -> SearchPoint for this check. Cached lookups only (city: Places; country: free list)."""
+def valid_point(point) -> tuple[float, float] | None:
+    """(lat, lng) from {"lat": .., "lng": ..} when it is a real place on Earth, else None."""
+    try:
+        lat, lng = float(point["lat"]), float(point["lng"])
+    except (TypeError, KeyError, ValueError):
+        return None
+    return (lat, lng) if -90 <= lat <= 90 and -180 <= lng <= 180 else None
+
+
+def search_points(
+    db: Session, project: Project, keywords: list[Keyword], scope: str, client, here: dict | None = None
+) -> dict:
+    """keyword_id -> SearchPoint for this check. Cached lookups only (city: Places; country: free list).
+
+    `here`: the browser's location ({"lat", "lng"}) for "current"; without it, falls back to city centre.
+    """
     scope = scope if scope in SCOPES else "city"
+    if scope == "current":
+        point = valid_point(here)
+        if point:
+            sp = SearchPoint("current", f"your current location ({point[0]:.4f}, {point[1]:.4f})", *point)
+            return {kw.id: sp for kw in keywords}
+        scope = "city"
     out: dict = {}
     cities: dict[str, SearchPoint] = {}
     pin = _business_pin(db, project) if scope == "business" else None
@@ -356,21 +378,26 @@ def _cache_age() -> timedelta:
 
 def scope_of(project: Project, requested: str | None = None) -> str:
     """The "search from" choice: the one asked for, else the project's last choice, else city centre."""
-    for value in (requested, getattr(project, "search_from", None)):
-        if value in SCOPES:
-            return value
-    return "city"
+    if requested in SCOPES:
+        return requested
+    saved = getattr(project, "search_from", None)
+    return saved if saved in SAVED_SCOPES else "city"
 
 
 def estimate(
-    db: Session, project: Project, mode: str | None = None, force: bool = False, scope: str | None = None
+    db: Session,
+    project: Project,
+    mode: str | None = None,
+    force: bool = False,
+    scope: str | None = None,
+    here: dict | None = None,
 ) -> dict:
     """Credits a check would use (cached searches are free) vs what is really left on SerpApi."""
     mode = mode or get_settings().ranking_mode
     scope = scope_of(project, scope)
     client = get_serpapi_client()
     keywords = active_keywords(db, project)
-    points = search_points(db, project, keywords, scope, client)
+    points = search_points(db, project, keywords, scope, client, here)
     needed = cached = 0
     for kw in keywords:
         for kind in _kinds(mode):
@@ -437,6 +464,7 @@ def run_check(
     mode: str | None = None,
     force: bool = False,
     scope: str | None = None,
+    here: dict | None = None,
 ) -> dict:
     mode = mode or get_settings().ranking_mode
     scope = scope_of(project, scope)
@@ -448,7 +476,7 @@ def run_check(
     if not keywords:
         raise ValueError("No active keywords: generate keywords and switch some on first")
 
-    points = search_points(db, project, keywords, scope, client)
+    points = search_points(db, project, keywords, scope, client, here)
     made = reused = 0
     errors: list[str] = []
     stopped: str | None = None  # set when a free-tier limit is reached: the remaining searches are skipped
