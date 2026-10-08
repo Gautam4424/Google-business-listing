@@ -560,6 +560,12 @@ flowchart TB
 - **Change is like for like:** "change since last check" only compares checks made from the **same** place.
 - **Why it matters:** searching from the business's own address flatters it, because Google favours nearby businesses. **City centre** shows what a typical customer in that city sees.
 
+**See every business, not just your position:** click **Top 20 ▸** next to a keyword in the Rankings table.
+- **The full lists open underneath:** the **Local Pack** (3) and the **Local Finder** (up to **20**), with category, rating, reviews and a Maps link.
+- **Your client is outlined**, and the 20-result list scrolls in its own panel.
+- **Same data in the CSV download:** `results.csv` (Report → Download CSV) has every business for every keyword.
+- **No extra cost:** each search already returns the top 20, so this uses no extra credits.
+
 **Live results and limits:**
 - **Results appear as they arrive.** The check runs **keyword by keyword, Local Pack first**, and each result appears straight away in the Rankings section's **Live check** table (with a progress bar).
 - **A limit part-way keeps what was found.** If a free-tier limit is reached during the check (e.g. on keyword 2), it **stops** there: keyword 1's results are kept, a Maps search that didn't run shows "not checked (limit)", and the card explains "Limit reached after 1 of 2 keywords…".

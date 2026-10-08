@@ -684,6 +684,50 @@ def check_report(db: Session, project: Project, job: AuditJob, previous: AuditJo
             "keywords": rows}  # fmt: skip
 
 
+def _business_row(res: RankingResult) -> dict:
+    return {
+        "rank": res.rank, "business_name": res.business_name, "is_client": res.is_client_business,
+        "category": res.primary_category, "rating": res.rating, "review_count": res.review_count,
+        "address": res.address, "website_url": res.website_url, "phone": res.phone, "maps_url": res.maps_url,
+    }  # fmt: skip
+
+
+def keyword_results(db: Session, job: AuditJob, keyword_id) -> dict | None:
+    """Every business a check found for one keyword: Local Pack (3) and the Local Finder list (up to 20)."""
+    runs = db.scalars(
+        select(RankingRun).where(RankingRun.audit_job_id == job.id, RankingRun.keyword_id == keyword_id)
+    ).all()
+    if not runs:
+        return None
+    out = {"keyword_id": str(keyword_id), "job_id": str(job.id), "checked_at": job.created_at.isoformat(),
+           "keyword": runs[0].keyword, "location_name": runs[0].location_name,
+           "search_from": runs[0].search_location, "search_scope": runs[0].search_scope,
+           "local_pack": None, "local_finder": None}  # fmt: skip
+    for run in runs:
+        rows = db.scalars(
+            select(RankingResult).where(RankingResult.run_id == run.id).order_by(RankingResult.rank)
+        ).all()
+        out[run.result_type] = {
+            "status": run.status,
+            "error": run.error,
+            "shown": run.pack_shown if run.result_type == "local_pack" else None,
+            "results": [_business_row(r) for r in rows],
+        }
+    return out
+
+
+def all_results(db: Session, job: AuditJob) -> list[dict]:
+    """Flat list of every business found in a check (for the CSV)."""
+    rows = db.execute(
+        select(RankingResult, RankingRun)
+        .join(RankingRun, RankingRun.id == RankingResult.run_id)
+        .where(RankingRun.audit_job_id == job.id)
+        .order_by(RankingRun.keyword, RankingRun.result_type.desc(), RankingResult.rank)
+    ).all()
+    return [{"keyword": run.keyword, "result_type": run.result_type, "search_from": run.search_location,
+             **_business_row(res)} for res, run in rows]  # fmt: skip
+
+
 def top_businesses(db: Session, job: AuditJob, limit: int = 8) -> list[dict]:
     """Businesses that appear most in this check (preview for Phase 8)."""
     counts: dict[str, dict] = {}

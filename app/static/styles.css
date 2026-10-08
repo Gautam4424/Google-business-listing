@@ -377,6 +377,18 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .live-bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
 .live-bar span { display: block; height: 100%; background: var(--info); transition: width .4s ease; }
 .rank-table tr.pending td { color: var(--muted); }
+/* "Top 20" lists under a keyword */
+.link-btn { border: 0; background: none; padding: 0 0 0 4px; color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.rank-table tr.kw-detail > td { background: var(--surface-2); padding: 12px 14px; }
+.res-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 18px; align-items: start; }
+/* each list scrolls inside its own panel, so all 20 are readable without a very long page */
+.res-list { list-style: none; margin: 6px 0 0; padding: 0 4px 0 0; display: grid; gap: 4px; max-height: 460px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.res-list li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--surface); }
+.res-list li.is-client { outline: 2px solid var(--accent); }
+.res-rank { font-weight: 700; color: var(--muted); }
+.res-main { display: grid; gap: 1px; min-width: 0; }
+@media (max-width: 760px) { .res-grid { grid-template-columns: minmax(0, 1fr); } }
 /* Phase 10: limit banner, delete box, settings page */
 .limit-banner { border-color: var(--warn); background: var(--warn-soft); color: var(--text); }
 .limit-banner ul { margin: 6px 0 0; padding-left: 18px; }

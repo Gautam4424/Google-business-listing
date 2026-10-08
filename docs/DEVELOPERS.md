@@ -55,6 +55,7 @@ curl localhost:8000/v1/usage    # free-tier usage this month
 | GET/POST | `/v1/projects/{id}/keywords`, `PATCH/DELETE …/keywords/{kid}` | List, add, switch on/off (capped by `KEYWORD_CAP`), delete |
 | GET | `/v1/projects/{id}/rankings/estimate` | SerpApi searches a check needs (cached = free) vs real balance + renewal date |
 | POST | `/v1/projects/{id}/rankings/run` | Local Pack + Local Finder check for active keywords (`{"mode": "full"\|"maps_only", "force": false}`) |
+| GET | `/v1/projects/{id}/rankings/keywords/{kid}` | Every business found for one keyword: Local Pack (3) + Local Finder (top 20); latest check, or `?job_id=` |
 | GET | `/v1/projects/{id}/rankings` | Latest check: visibility score, counts, per-keyword ranks, change, history, top businesses |
 | GET | `/v1/projects/{id}/competitors` | Competitors from the latest ranking check (brief rule), side by side with the client |
 | POST | `/v1/projects/{id}/competitors/analyze` | Re-run competitors + gaps on the latest check (0 SerpApi; ≤ `COMPETITOR_MAX` cached Place Details). Also runs automatically after every ranking check |

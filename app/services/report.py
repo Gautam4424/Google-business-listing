@@ -22,7 +22,7 @@ from app.services.gaps import PRIORITY_ORDER, TYPE_ORDER, gap_out
 from app.services.service_catalog import services_by_kind
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
-CSV_SECTIONS = ("profile", "nap_check", "reviews", "keywords", "rankings", "competitors", "gaps")
+CSV_SECTIONS = ("profile", "nap_check", "reviews", "keywords", "rankings", "results", "competitors", "gaps")
 
 
 class ReportUnavailable(RuntimeError):
@@ -105,6 +105,8 @@ def report_data(db: Session, project: Project) -> dict:
         ],  # fmt: skip
         "rankings": ranking,
         "ranking_history": history,
+        # every business found in the latest check: Local Pack top 3 + Local Finder top 20 per keyword
+        "ranking_results": rankings_service.all_results(db, checks[0]) if checks else [],
         "competitors": comp,
         "gaps": gaps,
     }
@@ -178,6 +180,10 @@ def csv_rows(data: dict, section: str) -> tuple[list[str], list[list]]:
             [k["keyword"], k["service"], k["location_name"], k["pattern"], k["active"]]
             for k in data["keywords"]
         ]
+    if section == "results":
+        cols = ["keyword", "result_type", "rank", "business_name", "is_client", "category", "rating",
+                "review_count", "address", "phone", "website_url", "maps_url", "search_from"]  # fmt: skip
+        return cols, [[r.get(c) for c in cols] for r in data.get("ranking_results", [])]
     if section == "rankings":
         rows = (data["rankings"] or {}).get("keywords", [])
         return ["keyword", "area", "local_pack_rank", "local_pack_estimated", "local_finder_rank", "points",

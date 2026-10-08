@@ -73,6 +73,25 @@ def run_rankings(
     return job
 
 
+@router.get("/keywords/{keyword_id}")
+def get_keyword_results(
+    project_id: uuid.UUID,
+    keyword_id: uuid.UUID,
+    job_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    """All businesses found for one keyword: Local Pack (3) + Local Finder (top 20), latest check."""
+    project = _project(db, project_id)
+    job = db.get(AuditJob, job_id) if job_id else None
+    if job is not None and job.project_id != project.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check not found for this project")
+    for candidate in [job] if job else rankings.ranking_checks(db, project):
+        found = rankings.keyword_results(db, candidate, keyword_id) if candidate else None
+        if found:
+            return found
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "No results for this keyword yet")
+
+
 @router.get("")
 def get_rankings(project_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
     """Latest check: visibility score, counts, per-keyword ranks and change vs the previous check made from

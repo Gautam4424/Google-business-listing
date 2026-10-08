@@ -617,6 +617,41 @@ function rankCell(rank, prev, extra = "") {
   return `<b>#${esc(rank)}</b>${move}${extra}`;
 }
 
+// Keywords whose full results are open (kept open when the page refreshes).
+const openResults = new Set();
+
+function resultsList(title, block, isPack) {
+  if (!block) return `<div><div class="label">${title}</div><p class="muted small">Not checked in this run.</p></div>`;
+  if (block.status !== "succeeded") return `<div><div class="label">${title}</div><p class="bad-text small">${esc(block.error || "Search failed")}</p></div>`;
+  if (isPack && block.shown === false) return `<div><div class="label">${title}</div><p class="muted small">Google showed no Local Pack for this search.</p></div>`;
+  const items = block.results.map((r) => `<li class="${r.is_client ? "is-client" : ""}">
+      <span class="res-rank">#${esc(r.rank)}</span>
+      <span class="res-main"><b>${esc(r.business_name)}</b>${r.is_client ? ` <span class="tag">you</span>` : ""}
+        <span class="muted small">${[r.category, r.rating != null ? `${r.rating} ★ (${fmtNum(r.review_count)})` : null].filter(Boolean).map(esc).join(" · ")}</span></span>
+      ${r.maps_url ? `<a class="small" href="${esc(r.maps_url)}" target="_blank" rel="noopener noreferrer">Maps ↗</a>` : ""}</li>`).join("");
+  return `<div><div class="label">${title} · ${block.results.length} result${block.results.length === 1 ? "" : "s"}</div>
+    ${items ? `<ol class="res-list">${items}</ol>` : `<p class="muted small">No businesses returned.</p>`}</div>`;
+}
+
+async function showKeywordResults(projectId, keywordId, jobId) {
+  const row = document.querySelector(`tr[data-kwrow="${CSS.escape(keywordId)}"]`);
+  if (!row) return;
+  row.nextElementSibling?.classList.contains("kw-detail") && row.nextElementSibling.remove();
+  const detail = document.createElement("tr");
+  detail.className = "kw-detail";
+  detail.innerHTML = `<td colspan="4"><span class="spinner"></span> Loading results…</td>`;
+  row.after(detail);
+  try {
+    const d = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/keywords/${encodeURIComponent(keywordId)}?job_id=${encodeURIComponent(jobId)}`);
+    detail.innerHTML = `<td colspan="4"><div class="res-grid">
+        ${resultsList("Local Pack (map box)", d.local_pack, true)}
+        ${resultsList(d.search_scope === "country" ? "Local Finder (“More places”)" : "Local Finder (Google Maps list)", d.local_finder, false)}</div>
+      <p class="muted small" style="margin:8px 0 0">📍 ${esc(d.search_from || "")} · checked ${esc(timeAgo(d.checked_at))} · sponsored results are not included</p></td>`;
+  } catch (err) {
+    detail.innerHTML = `<td colspan="4" class="bad-text small">${esc(err.message)}</td>`;
+  }
+}
+
 const SEARCH_FROM = {
   city: { label: "City centre", short: "from the city centre", help: "Like a customer in the middle of the city (e.g. downtown Atlanta)" },
   country: { label: "Whole country", short: "from the whole country", help: "Like a customer anywhere in the country, e.g. United States" },
@@ -656,8 +691,9 @@ function rankingsCard(projectId, data, est) {
     ? `<div class="muted small">change over the ${esc(sm.compared_keywords)} keywords checked both times</div>` : "";
   const change = sm.visibility_change == null ? "" : sm.visibility_change > 0 ? `<span class="pill ok">▲ ${sm.visibility_change}</span>`
     : sm.visibility_change < 0 ? `<span class="pill bad">▼ ${Math.abs(sm.visibility_change)}</span>` : `<span class="pill idle">no change</span>`;
-  const rows = latest.keywords.map((k) => `<tr>
-      <td><b>${esc(k.keyword)}</b><div class="muted small">${esc(k.location_name || "")}</div>
+  const rows = latest.keywords.map((k) => `<tr data-kwrow="${esc(k.keyword_id)}">
+      <td><b>${esc(k.keyword)}</b> <button class="link-btn" data-action="kw-results" data-project="${esc(projectId)}" data-kw="${esc(k.keyword_id)}" data-job="${esc(latest.job_id)}" title="Every business found: Local Pack top 3 and Local Finder top 20">${openResults.has(k.keyword_id) ? "Top 20 ▾" : "Top 20 ▸"}</button>
+        <div class="muted small">${esc(k.location_name || "")}</div>
         <div class="muted small" title="Where Google was told the searcher is">📍 searched from ${esc(k.search_scope ? k.search_from : "the area's saved point (older check)")}</div></td>
       <td>${k.local_pack_shown === false ? `<span class="muted">no Local Pack shown</span>` : rankCell(k.local_pack_rank, k.previous_local_pack_rank, k.local_pack_estimated ? ` <span class="tag">est.</span>` : "")}</td>
       <td>${k.local_finder_checked === false ? `<span class="muted">not checked (limit)</span>` : rankCell(k.local_finder_rank, k.previous_local_finder_rank)}</td>
@@ -729,6 +765,9 @@ async function renderRankingSection(project) {
       scope: box.querySelector('input[name="rscope"]:checked')?.value,
     } : null;
     holder.innerHTML = rankingsCard(project.id, data, { mode: kept?.mode || data.latest?.mode, scope: kept?.scope || data.search_from });
+    if (data.latest) {  // re-open the keyword lists that were open before the refresh
+      openResults.forEach((kid) => showKeywordResults(project.id, kid, data.latest.job_id));
+    }
     const fresh = holder.querySelector("#run-box");
     if (kept && fresh && !data.live) {
       fresh.hidden = false;
@@ -1558,6 +1597,19 @@ document.addEventListener("click", (e) => {
     action.innerHTML = `<span class="spinner"></span>Starting…`;
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode, search_from: scope }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
+  }
+  if (action?.dataset.action === "kw-results") {
+    const kid = action.dataset.kw;
+    if (openResults.has(kid)) {
+      openResults.delete(kid);
+      action.textContent = "Top 20 ▸";
+      const next = action.closest("tr").nextElementSibling;
+      if (next?.classList.contains("kw-detail")) next.remove();
+      return;
+    }
+    openResults.add(kid);
+    action.textContent = "Top 20 ▾";
+    return showKeywordResults(action.dataset.project, kid, action.dataset.job);
   }
   if (action?.dataset.action === "setting-reset") {
     action.disabled = true;

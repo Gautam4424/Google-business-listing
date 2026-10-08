@@ -202,6 +202,37 @@ def test_choice_is_remembered_and_changes_compare_like_for_like(client, db, setu
     assert [h["search_from"] for h in data["history"]] == ["city", "country"]
 
 
+def test_full_results_per_keyword(client, db, setup):
+    project, use, _ = setup
+    use()
+    job = run_job(db, _job(db, project, mode="full").id)
+    kw = db.query(Keyword).filter_by(project_id=project.id, keyword="plumber in Point Piper").one()
+    d = client.get(f"/v1/projects/{project.id}/rankings/keywords/{kw.id}").json()
+    assert d["job_id"] == str(job.id) and d["keyword"] == "plumber in Point Piper"
+    pack = d["local_pack"]["results"]
+    assert [r["business_name"] for r in pack] == ["Rival Plumbing", "Proximity Plumbing", "Third Plumbing"]
+    assert pack[1]["is_client"] and not pack[0]["is_client"]
+    finder = d["local_finder"]["results"]
+    assert [r["rank"] for r in finder] == [1, 2, 3] and finder[2]["is_client"]
+    other = AuditJob(job_type="ranking_check", project_id=uuid.uuid4(), params={}, status="completed")
+    db.add(other)
+    db.commit()
+    assert (
+        client.get(f"/v1/projects/{project.id}/rankings/keywords/{kw.id}?job_id={other.id}").status_code
+        == 404
+    )
+    unknown = client.get(f"/v1/projects/{project.id}/rankings/keywords/{uuid.uuid4()}")
+    assert unknown.status_code == 404
+
+    from app.services import report
+
+    data = report.report_data(db, project)
+    header, rows = report.csv_rows(data, "results")
+    assert (
+        header[:4] == ["keyword", "result_type", "rank", "business_name"] and len(rows) == 12
+    )  # 2 kw x (3+3)
+
+
 def test_points_and_parsing():
     assert [rankings.finder_points(r) for r in (1, 3, 4, 10, 11, 20, 21, None)] == [
         40,
