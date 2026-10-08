@@ -620,16 +620,29 @@ function rankCell(rank, prev, extra = "") {
 // Keywords whose full results are open (kept open when the page refreshes).
 const openResults = new Set();
 
+// Links to check a result by hand: the exact Google address SerpApi opened (location built in)
+// and SerpApi's saved copy of the page it saw.
+function verifyLinks(block, isPack) {
+  if (!block) return "";
+  const google = block.google_url
+    ? `<a href="${esc(block.google_url)}" target="_blank" rel="noopener noreferrer" title="${block.google_url_exact ? "The exact Google address SerpApi opened, with the same location" : "The same search and location, rebuilt from the saved settings"}">Open on Google ↗</a>` : "";
+  const copy = block.snapshot_url
+    ? `<a href="${esc(block.snapshot_url)}" target="_blank" rel="noopener noreferrer" title="The page exactly as SerpApi received it">SerpApi's copy ↗</a>` : "";
+  const hint = isPack ? `<span class="muted" title="The app checks as a phone: press F12, then Ctrl+Shift+M for phone view">phone view: F12 → Ctrl+Shift+M</span>` : "";
+  return google || copy ? `<div class="verify-links">${[google, copy, hint].filter(Boolean).join(" · ")}</div>` : "";
+}
+
 function resultsList(title, block, isPack) {
   if (!block) return `<div><div class="label">${title}</div><p class="muted small">Not checked in this run.</p></div>`;
   if (block.status !== "succeeded") return `<div><div class="label">${title}</div><p class="bad-text small">${esc(block.error || "Search failed")}</p></div>`;
-  if (isPack && block.shown === false) return `<div><div class="label">${title}</div><p class="muted small">Google showed no Local Pack for this search.</p></div>`;
+  if (isPack && block.shown === false) return `<div><div class="label">${title}</div>${verifyLinks(block, isPack)}<p class="muted small">Google showed no Local Pack for this search.</p></div>`;
   const items = block.results.map((r) => `<li class="${r.is_client ? "is-client" : ""}">
       <span class="res-rank">#${esc(r.rank)}</span>
       <span class="res-main"><b>${esc(r.business_name)}</b>${r.is_client ? ` <span class="tag">you</span>` : ""}
         <span class="muted small">${[r.category, r.rating != null ? `${r.rating} ★ (${fmtNum(r.review_count)})` : null].filter(Boolean).map(esc).join(" · ")}</span></span>
       ${r.maps_url ? `<a class="small" href="${esc(r.maps_url)}" target="_blank" rel="noopener noreferrer">Maps ↗</a>` : ""}</li>`).join("");
   return `<div><div class="label">${title} · ${block.results.length} result${block.results.length === 1 ? "" : "s"}</div>
+    ${verifyLinks(block, isPack)}
     ${items ? `<ol class="res-list">${items}</ol>` : `<p class="muted small">No businesses returned.</p>`}</div>`;
 }
 

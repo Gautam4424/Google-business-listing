@@ -387,6 +387,7 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .res-list li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--surface); }
 .res-list li.is-client { outline: 2px solid var(--accent); }
 .res-rank { font-weight: 700; color: var(--muted); }
+.verify-links { font-size: 12px; margin: 4px 0 2px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 .res-main { display: grid; gap: 1px; min-width: 0; }
 @media (max-width: 760px) { .res-grid { grid-template-columns: minmax(0, 1fr); } }
 /* Phase 10: limit banner, delete box, settings page */

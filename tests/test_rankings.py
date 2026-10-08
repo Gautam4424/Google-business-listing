@@ -229,6 +229,46 @@ def test_search_from_my_current_location(client, db, setup, enqueued):
     assert run.search_scope == "current" and "your current location" in run.search_location
 
 
+def test_links_to_check_results_by_hand(client, db, setup, monkeypatch):
+    # SerpApi's own link (raw '+' in uule must be encoded) and its saved copy of the page
+    url, copy = rankings.serpapi_links({"search_metadata": {
+        "google_url": "https://www.google.com/search?q=plumber&uule=a+cm9sZTox==&hl=en&gl=au",
+        "raw_html_file": "https://serpapi.com/searches/abc/123.html"}})  # fmt: skip
+    assert url == "https://www.google.com/search?q=plumber&uule=a%2Bcm9sZTox%3D%3D&hl=en&gl=au"
+    assert copy == "https://serpapi.com/searches/abc/123.html"
+    maps_url, _ = rankings.serpapi_links(
+        {"search_metadata": {"google_maps_url": "https://www.google.com/maps/x"}}
+    )
+    assert maps_url == "https://www.google.com/maps/x"
+
+    project, _, _ = setup
+    meta = {"google_url": "https://www.google.com/search?q=x&uule=a+AB",
+            "raw_html_file": "https://serpapi.com/searches/s/1.html"}  # fmt: skip
+    with_meta = {**PACK, "search_metadata": meta}
+    calls_seen = []
+
+    def serp(request):
+        p = request.url.params
+        if request.url.path == "/account.json":
+            return httpx.Response(200, json={"total_searches_left": 99})
+        calls_seen.append(p["engine"])
+        return httpx.Response(200, json=with_meta if p["engine"] == "google" else MAPS)
+
+    monkeypatch.setattr(rankings, "get_serpapi_client",
+                        lambda: SerpApiClient("k", transport=httpx.MockTransport(serp)))  # fmt: skip
+    run_job(db, _job(db, project, mode="full").id)
+    kw = db.query(Keyword).filter_by(project_id=project.id, keyword="plumber in Point Piper").one()
+    d = client.get(f"/v1/projects/{project.id}/rankings/keywords/{kw.id}").json()
+    pack, finder = d["local_pack"], d["local_finder"]
+    assert pack["google_url"] == "https://www.google.com/search?q=x&uule=a%2BAB" and pack["google_url_exact"]
+    assert pack["snapshot_url"] == "https://serpapi.com/searches/s/1.html"
+    # no metadata in the Maps answer: the same search is rebuilt from the saved settings
+    assert finder["google_url"].startswith(
+        "https://www.google.com/maps/search/plumber+in+Point+Piper/@-33.867000,151.250000,"
+    )
+    assert finder["snapshot_url"] is None
+
+
 def test_full_results_per_keyword(client, db, setup):
     project, use, _ = setup
     use()

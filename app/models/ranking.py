@@ -64,6 +64,9 @@ class RankingRun(IdMixin, Base):
     keyword: Mapped[str | None] = mapped_column(String(300))  # the exact query sent
     search_location: Mapped[str | None] = mapped_column(String(300))  # where it searched from, in words
     search_scope: Mapped[str | None] = mapped_column(String(10))  # city | country | business (None = before)
+    # The exact Google address SerpApi opened (location code included) and SerpApi's saved copy of the page
+    google_url: Mapped[str | None] = mapped_column(Text)
+    snapshot_url: Mapped[str | None] = mapped_column(Text)
     pack_shown: Mapped[bool | None] = mapped_column(Boolean)  # local_pack: did Google show one at all
     estimated: Mapped[bool] = mapped_column(Boolean, default=False)  # local_pack derived from Maps top 3
     from_cache: Mapped[bool] = mapped_column(Boolean, default=False)

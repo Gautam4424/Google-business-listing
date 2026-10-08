@@ -2,6 +2,8 @@
 
 Each test compares what the app gets from SerpApi with what Google shows in **your own browser, sent the exact same search and location**.
 
+> **Quickest check for any keyword already checked by the app:** Rankings → **Top 20 ▸** → each list has **Open on Google ↗** (the exact address SerpApi opened, location built in) and **SerpApi's copy ↗** (the page as SerpApi received it). The tests below also work for keywords that haven't been checked yet.
+
 ## How to run a test
 1. **Get the app's result.** On the project page → Rankings → **Run ranking check**, choose the **Search from** shown in the test and run it. The keyword must be switched **On** in step 2. A test marked **Expected** already has a stored result, so you don't need to spend credits.
 2. **Get Google's result in a clean browser:**

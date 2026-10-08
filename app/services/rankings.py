@@ -18,7 +18,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import quote, quote_plus, urlsplit
 
 import httpx
 from rapidfuzz import fuzz
@@ -360,6 +360,48 @@ def search_params(kind: str, kw: Keyword, point: SearchPoint) -> dict:
             "gl": kw.country.lower(), "ll": ll}  # fmt: skip
 
 
+# ---------- links to check a result by hand ----------
+
+KEYS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def _encode_uule(url: str) -> str:
+    """SerpApi writes uule with a raw '+' (which a browser reads as a space): encode it so the link works."""
+    parts = url.split("?", 1)
+    if len(parts) < 2:
+        return url
+    query = "&".join(
+        f"uule={quote(p[5:], safe='')}" if p.startswith("uule=") and "%" not in p else p
+        for p in parts[1].split("&")
+    )
+    return f"{parts[0]}?{query}"
+
+
+def serpapi_links(data: dict) -> tuple[str | None, str | None]:
+    """(the exact Google URL SerpApi opened, SerpApi's saved copy of that page) from search_metadata."""
+    meta = data.get("search_metadata") or {}
+    google = next(
+        (meta[k] for k in ("google_url", "google_maps_url", "google_local_url") if meta.get(k)),
+        next((v for k, v in meta.items() if k.startswith("google") and isinstance(v, str)), None),
+    )
+    return (_encode_uule(google) if google else None), meta.get("raw_html_file")
+
+
+def rebuilt_google_url(kind: str, kw: Keyword, point: SearchPoint) -> str:
+    """The same search as a Google link, when SerpApi did not return one (same words, place and language)."""
+    q = quote_plus(kw.keyword)
+    gl, hl = kw.country.lower(), kw.language
+    if kind == "local_finder" and point.lat is not None:
+        return f"https://www.google.com/maps/search/{q}/@{point.lat:.6f},{point.lng:.6f},{get_settings().maps_zoom}z?hl={hl}&gl={gl}"
+    if point.lat is not None:
+        uule = coordinate_uule(point.lat, point.lng)
+    else:
+        name = point.location or ""
+        uule = "w+CAIQICI" + KEYS[len(name) % len(KEYS)] + base64.b64encode(name.encode()).decode()
+    extra = "&tbm=lcl" if kind == "local_finder" else ""
+    return f"https://www.google.com/search?q={q}&gl={gl}&hl={hl}&uule={quote(uule, safe='')}{extra}"
+
+
 def _kinds(mode: str) -> list[str]:
     return ["local_finder"] if mode == "maps_only" else ["local_pack", "local_finder"]
 
@@ -514,6 +556,8 @@ def run_check(
             made += not from_cache
             reused += from_cache
             run.from_cache, run.raw_response_id = from_cache, raw_id
+            run.google_url, run.snapshot_url = serpapi_links(data)
+            run.google_url = run.google_url or rebuilt_google_url(kind, kw, point)
             if kind == "local_pack":
                 run.pack_shown, rows = parse_local_pack(data)
             else:
@@ -740,8 +784,24 @@ def keyword_results(db: Session, job: AuditJob, keyword_id) -> dict | None:
             "error": run.error,
             "shown": run.pack_shown if run.result_type == "local_pack" else None,
             "results": [_business_row(r) for r in rows],
+            "google_url": _encode_uule(run.google_url) if run.google_url else _run_google_url(run),
+            "google_url_exact": bool(run.google_url),  # False = rebuilt from the saved search settings
+            "snapshot_url": run.snapshot_url,
         }
     return out
+
+
+def _run_google_url(run: RankingRun) -> str | None:
+    """Rebuild the Google link of an older run from its saved settings (keyword, point, country, language)."""
+    if not run.keyword:
+        return None
+    label = run.search_location or ""
+    named = label.split(" (whole country)")[0] if "(whole country)" in label else None
+    point = SearchPoint(run.search_scope or "city", label, run.latitude, run.longitude, named)
+    kw = Keyword(
+        keyword=run.keyword, country=run.country, language=run.language, location_name=run.location_name
+    )
+    return rebuilt_google_url(run.result_type, kw, point)
 
 
 def all_results(db: Session, job: AuditJob) -> list[dict]:
@@ -753,7 +813,9 @@ def all_results(db: Session, job: AuditJob) -> list[dict]:
         .order_by(RankingRun.keyword, RankingRun.result_type.desc(), RankingResult.rank)
     ).all()
     return [{"keyword": run.keyword, "result_type": run.result_type, "search_from": run.search_location,
-             **_business_row(res)} for res, run in rows]  # fmt: skip
+             "google_url": _encode_uule(run.google_url) if run.google_url else _run_google_url(run),
+             **_business_row(res)}
+            for res, run in rows]  # fmt: skip
 
 
 def top_businesses(db: Session, job: AuditJob, limit: int = 8) -> list[dict]:

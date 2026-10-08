@@ -182,7 +182,8 @@ def csv_rows(data: dict, section: str) -> tuple[list[str], list[list]]:
         ]
     if section == "results":
         cols = ["keyword", "result_type", "rank", "business_name", "is_client", "category", "rating",
-                "review_count", "address", "phone", "website_url", "maps_url", "search_from"]  # fmt: skip
+                "review_count", "address", "phone", "website_url", "maps_url", "search_from",
+                "google_url"]  # fmt: skip
         return cols, [[r.get(c) for c in cols] for r in data.get("ranking_results", [])]
     if section == "rankings":
         rows = (data["rankings"] or {}).get("keywords", [])
