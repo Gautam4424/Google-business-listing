@@ -552,6 +552,7 @@ flowchart TB
 | Choice | Google is told the searcher is… | Example (OVO Painting, Atlanta) | Map search |
 |---|---|---|---|
 | **City centre** (default) | at the centre of the keyword's city/suburb (Google's own point for that place) | downtown Atlanta (33.7501, −84.3885) | Google Maps around that point |
+| **City (Google's area)** | in the city as a whole, like Google's **"Choose area"** setting (what signed-in users who picked a city see) | Atlanta, Georgia, United States | Google's Local Finder list ("More places") for the city |
 | **Whole country** | somewhere in the country (no exact point) | United States | Google's Local Finder list (“More places”) for the country |
 | **Business location** | at the business's own map pin | OVO's office (33.8933, −84.3819) | Google Maps around the pin |
 | **My current location** | where **you** are now (your browser shares it after asking once) | e.g. Ghaziabad (28.6692, 77.4538) | Google Maps around you |
@@ -572,10 +573,10 @@ flowchart TB
 - **Your client is outlined**, and the 20-result list scrolls in its own panel.
 - **Same data in the CSV download:** `results.csv` (Report → Download CSV) has every business for every keyword.
 - **No extra cost:** each search already returns the top 20, so this uses no extra credits.
-- **Check any result yourself:** each list has two links.
-  - **Open on Google ↗** is the **exact Google address SerpApi opened**, with the same location code. The Local Pack was checked as a phone, so use phone view (F12 → Ctrl+Shift+M).
-  - **SerpApi's copy ↗** is the page **exactly as SerpApi received it**, saved by SerpApi. It opens without a SerpApi login, so treat the link as shareable.
-  - **In the CSV:** `results.csv` includes the Google link for every row.
+- **Check any result yourself:** above the lists, for the Local Pack and the Local Finder, the full addresses are shown in boxes with a **Copy** button.
+  - **Proof on Google** is the same search as a plain Google address, with the place built in. That's a point, or for **City (Google's area)** and **Whole country** a named place, which Google shows as e.g. "Noida, Uttar Pradesh · Choose area". For the Local Finder it's the Google Maps list (point searches) or Google's "More places" list (named places). Paste it into an **incognito window**; the Local Pack was checked as a phone, so use phone view (F12 → Ctrl+Shift+M).
+  - **SerpApi's copy** is the page **exactly as SerpApi received it**. It opens without a SerpApi login, so treat it as shareable.
+  - **In the CSV:** `results.csv` has the proof address for every row.
 
 **Live results and limits:**
 - **Results appear as they arrive.** The check runs **keyword by keyword, Local Pack first**, and each result appears straight away in the Rankings section's **Live check** table (with a progress bar).

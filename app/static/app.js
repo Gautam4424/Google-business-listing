@@ -622,27 +622,50 @@ const openResults = new Set();
 
 // Links to check a result by hand: the exact Google address SerpApi opened (location built in)
 // and SerpApi's saved copy of the page it saw.
+// The full address in a box with a Copy button (paste it into an incognito window to check).
+function urlBox(label, url, help) {
+  return `<div class="url-box"><div class="url-head"><b>${esc(label)}</b><span class="muted">${esc(help)}</span></div>
+    <div class="url-row"><code class="url-text">${esc(url)}</code>
+      <button type="button" class="btn sm" data-action="copy-url" data-url="${esc(url)}">Copy</button></div></div>`;
+}
+
 function verifyLinks(block, isPack) {
   if (!block) return "";
-  const google = block.google_url
-    ? `<a href="${esc(block.google_url)}" target="_blank" rel="noopener noreferrer" title="${block.google_url_exact ? "The exact Google address SerpApi opened, with the same location" : "The same search and location, rebuilt from the saved settings"}">Open on Google ↗</a>` : "";
-  const copy = block.snapshot_url
-    ? `<a href="${esc(block.snapshot_url)}" target="_blank" rel="noopener noreferrer" title="The page exactly as SerpApi received it">SerpApi's copy ↗</a>` : "";
-  const hint = isPack ? `<span class="muted" title="The app checks as a phone: press F12, then Ctrl+Shift+M for phone view">phone view: F12 → Ctrl+Shift+M</span>` : "";
-  return google || copy ? `<div class="verify-links">${[google, copy, hint].filter(Boolean).join(" · ")}</div>` : "";
+  const boxes = [];
+  if (block.proof_url) {
+    boxes.push(urlBox("Proof on Google", block.proof_url,
+      `Same search and location. Paste into an incognito window${isPack ? " (phone view: F12 → Ctrl+Shift+M)" : ""}`));
+  }
+  if (block.snapshot_url) boxes.push(urlBox("SerpApi's copy", block.snapshot_url, "The page exactly as SerpApi received it"));
+  return boxes.length ? `<div class="verify-links">${boxes.join("")}</div>` : "";
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {  // older browsers / no permission: select-and-copy fallback
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  const old = button.textContent;
+  button.textContent = "Copied ✓";
+  setTimeout(() => { button.textContent = old; }, 1500);
 }
 
 function resultsList(title, block, isPack) {
   if (!block) return `<div><div class="label">${title}</div><p class="muted small">Not checked in this run.</p></div>`;
   if (block.status !== "succeeded") return `<div><div class="label">${title}</div><p class="bad-text small">${esc(block.error || "Search failed")}</p></div>`;
-  if (isPack && block.shown === false) return `<div><div class="label">${title}</div>${verifyLinks(block, isPack)}<p class="muted small">Google showed no Local Pack for this search.</p></div>`;
+  if (isPack && block.shown === false) return `<div><div class="label">${title}</div><p class="muted small">Google showed no Local Pack for this search.</p></div>`;
   const items = block.results.map((r) => `<li class="${r.is_client ? "is-client" : ""}">
       <span class="res-rank">#${esc(r.rank)}</span>
       <span class="res-main"><b>${esc(r.business_name)}</b>${r.is_client ? ` <span class="tag">you</span>` : ""}
         <span class="muted small">${[r.category, r.rating != null ? `${r.rating} ★ (${fmtNum(r.review_count)})` : null].filter(Boolean).map(esc).join(" · ")}</span></span>
       ${r.maps_url ? `<a class="small" href="${esc(r.maps_url)}" target="_blank" rel="noopener noreferrer">Maps ↗</a>` : ""}</li>`).join("");
   return `<div><div class="label">${title} · ${block.results.length} result${block.results.length === 1 ? "" : "s"}</div>
-    ${verifyLinks(block, isPack)}
     ${items ? `<ol class="res-list">${items}</ol>` : `<p class="muted small">No businesses returned.</p>`}</div>`;
 }
 
@@ -656,9 +679,15 @@ async function showKeywordResults(projectId, keywordId, jobId) {
   row.after(detail);
   try {
     const d = await api(`/v1/projects/${encodeURIComponent(projectId)}/rankings/keywords/${encodeURIComponent(keywordId)}?job_id=${encodeURIComponent(jobId)}`);
-    detail.innerHTML = `<td colspan="4"><div class="res-grid">
+    const finderTitle = ["country", "area"].includes(d.search_scope) ? "Local Finder (“More places”)" : "Local Finder (Google Maps list)";
+    const proofs = [["Local Pack", d.local_pack, true], [finderTitle, d.local_finder, false]]
+      .filter(([, b]) => b && (b.proof_url || b.snapshot_url))
+      .map(([t, b, isPack]) => `<div><div class="label">Proof · ${esc(t)}</div>${verifyLinks(b, isPack)}</div>`).join("");
+    detail.innerHTML = `<td colspan="4">
+      ${proofs ? `<div class="proof-grid">${proofs}</div>` : ""}
+      <div class="res-grid">
         ${resultsList("Local Pack (map box)", d.local_pack, true)}
-        ${resultsList(d.search_scope === "country" ? "Local Finder (“More places”)" : "Local Finder (Google Maps list)", d.local_finder, false)}</div>
+        ${resultsList(finderTitle, d.local_finder, false)}</div>
       <p class="muted small" style="margin:8px 0 0">📍 ${esc(d.search_from || "")} · checked ${esc(timeAgo(d.checked_at))} · sponsored results are not included</p></td>`;
   } catch (err) {
     detail.innerHTML = `<td colspan="4" class="bad-text small">${esc(err.message)}</td>`;
@@ -666,7 +695,8 @@ async function showKeywordResults(projectId, keywordId, jobId) {
 }
 
 const SEARCH_FROM = {
-  city: { label: "City centre", short: "from the city centre", help: "Like a customer in the middle of the city (e.g. downtown Atlanta)" },
+  city: { label: "City centre", short: "from the city centre", help: "Like a customer standing in the middle of the city (e.g. downtown Atlanta)" },
+  area: { label: "City (Google's area)", short: "from the city as Google's area", help: "The city as a whole, like Google's “Choose area” setting (what signed-in users who picked a city see)" },
   country: { label: "Whole country", short: "from the whole country", help: "Like a customer anywhere in the country, e.g. United States" },
   business: { label: "Business location", short: "from the business location", help: "Like a customer standing at the business's own address" },
   current: { label: "My current location", short: "from your location", help: "Where you are now (your browser asks for permission once)" },
@@ -1641,6 +1671,7 @@ document.addEventListener("click", (e) => {
     return kwAction(() => api(`/v1/projects/${pid}/rankings/run`, { method: "POST", body: JSON.stringify({ mode, search_from: scope, here }) }),
       "Ranking check started", { full: true });  // full redraw shows the job progress
   }
+  if (action?.dataset.action === "copy-url") return copyText(action.dataset.url, action);
   if (action?.dataset.action === "kw-results") {
     const kid = action.dataset.kw;
     if (openResults.has(kid)) {

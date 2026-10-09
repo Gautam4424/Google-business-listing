@@ -15,7 +15,7 @@ from app.services import rankings
 
 router = APIRouter(prefix="/projects/{project_id}/rankings", tags=["rankings"])
 
-SearchFrom = Literal["city", "country", "business", "current"]
+SearchFrom = Literal["city", "area", "country", "business", "current"]
 
 
 class Here(BaseModel):
@@ -28,8 +28,9 @@ class RunOptions(BaseModel):
     force: bool = False  # ignore the saved results from the last RANKING_CACHE_HOURS
     search_from: SearchFrom | None = Field(
         None,
-        description="city centre | whole country | business location | current = your browser's location "
-        "(needs `here`). Default: the project's last choice",
+        description="city = city centre point | area = the city as Google's named area ('Choose area') | "
+        "country | business location | current = your browser's location (needs `here`). "
+        "Default: the project's last choice",
     )
     here: Here | None = Field(None, description="Your location from the browser, for search_from=current")
 

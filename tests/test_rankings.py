@@ -260,13 +260,43 @@ def test_links_to_check_results_by_hand(client, db, setup, monkeypatch):
     kw = db.query(Keyword).filter_by(project_id=project.id, keyword="plumber in Point Piper").one()
     d = client.get(f"/v1/projects/{project.id}/rankings/keywords/{kw.id}").json()
     pack, finder = d["local_pack"], d["local_finder"]
-    assert pack["google_url"] == "https://www.google.com/search?q=x&uule=a%2BAB" and pack["google_url_exact"]
+    # proof = the same search as a plain Google link with the same point built in
+    assert pack["proof_url"].startswith(
+        "https://www.google.com/search?q=plumber+in+Point+Piper&gl=au&hl=en&uule=a%2B"
+    )
     assert pack["snapshot_url"] == "https://serpapi.com/searches/s/1.html"
-    # no metadata in the Maps answer: the same search is rebuilt from the saved settings
-    assert finder["google_url"].startswith(
+    assert finder["proof_url"].startswith(
         "https://www.google.com/maps/search/plumber+in+Point+Piper/@-33.867000,151.250000,"
     )
     assert finder["snapshot_url"] is None
+    run = db.query(RankingRun).filter_by(keyword="plumber in Point Piper", result_type="local_pack").first()
+    assert run.google_url == "https://www.google.com/search?q=x&uule=a%2BAB"  # SerpApi's own link still saved
+
+
+def test_search_from_city_as_googles_area(client, db, setup):
+    """Like Google's 'Choose area': the city as a named place, proof links show the same named area."""
+    project, use, calls = setup
+    use()
+    job = run_job(db, _job(db, project, mode="full", search_from="area").id)
+    assert job.status == "completed", job.steps
+    pack = next(c for c in calls if c["engine"] == "google")
+    assert pack["location"] == "Point Piper,New South Wales,Australia" and "uule" not in pack
+    finder = next(c for c in calls if c["engine"] != "google")
+    assert (
+        finder["engine"] == "google_local" and finder["location"] == "Point Piper,New South Wales,Australia"
+    )
+    kw = db.query(Keyword).filter_by(project_id=project.id, keyword="plumber in Point Piper").one()
+    d = client.get(f"/v1/projects/{project.id}/rankings/keywords/{kw.id}").json()
+    assert (
+        d["search_scope"] == "area"
+        and d["search_from"] == "Point Piper,New South Wales,Australia (Google's area)"
+    )
+    name = "Point Piper,New South Wales,Australia"
+    uule = "w+CAIQICI" + rankings.KEYS[len(name)] + base64.b64encode(name.encode()).decode()
+    from urllib.parse import quote
+
+    assert d["local_pack"]["proof_url"].endswith(f"&uule={quote(uule, safe='')}")
+    assert d["local_finder"]["proof_url"].endswith(f"&uule={quote(uule, safe='')}&tbm=lcl")  # "More places"
 
 
 def test_full_results_per_keyword(client, db, setup):

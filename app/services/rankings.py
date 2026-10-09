@@ -211,10 +211,17 @@ def coordinate_uule(lat: float, lng: float) -> str:
 
 # ---------- where a check searches from ----------
 
-SCOPES = ("city", "country", "business", "current")
-SCOPE_LABEL = {"city": "city centre", "country": "whole country", "business": "business location",
-               "current": "your current location"}  # fmt: skip
-SAVED_SCOPES = ("city", "country", "business")  # "current" needs the browser's location: never a default
+SCOPES = ("city", "area", "country", "business", "current")
+SCOPE_LABEL = {"city": "city centre", "area": "city (Google's area)", "country": "whole country",
+               "business": "business location", "current": "your current location"}  # fmt: skip
+SAVED_SCOPES = (
+    "city",
+    "area",
+    "country",
+    "business",
+)  # "current" needs the browser's location: never a default
+# Searches made from a named place (no point): Local Pack location=<name>, Local Finder = google_local
+NAMED_SUFFIX = {"area": " (Google's area)", "country": " (whole country)"}
 COUNTRY_NAMES = {
     "US": "United States", "CA": "Canada", "GB": "United Kingdom", "AU": "Australia", "NZ": "New Zealand",
     "IN": "India", "IE": "Ireland", "ZA": "South Africa", "AE": "United Arab Emirates", "SG": "Singapore",
@@ -310,6 +317,16 @@ def search_points(
                 "country", f"{canonical or name} (whole country)", location=canonical or name
             )
             continue
+        if scope == "area":  # the city as a named place, like Google's "Choose area" (no point)
+            if ("area", kw.location_name) not in cities:
+                canonical = resolve_location(db, client, kw.location_name, country) if client else None
+                if canonical:
+                    cities[("area", kw.location_name)] = SearchPoint(
+                        "area", f"{canonical} (Google's area)", location=canonical
+                    )
+            if ("area", kw.location_name) in cities:
+                out[kw.id] = cities[("area", kw.location_name)]
+                continue  # not in Google's list of places: falls back to the city centre below
         if scope == "business" and pin:
             out[kw.id] = SearchPoint(
                 "business", f"business location ({pin[0]:.4f}, {pin[1]:.4f})", pin[0], pin[1]
@@ -388,7 +405,13 @@ def serpapi_links(data: dict) -> tuple[str | None, str | None]:
 
 
 def rebuilt_google_url(kind: str, kw: Keyword, point: SearchPoint) -> str:
-    """The same search as a Google link, when SerpApi did not return one (same words, place and language)."""
+    """The proof link: the same search as a plain Google link (same words, place, country and language).
+
+    Local Pack -> google.com/search with the place built in (`uule`: a point, or a named city/country,
+    which Google shows as e.g. "Noida, Uttar Pradesh · Choose area").
+    Local Finder -> Google Maps around the point, or Google's "More places" list (`tbm=lcl`) for a named
+    place.
+    """
     q = quote_plus(kw.keyword)
     gl, hl = kw.country.lower(), kw.language
     if kind == "local_finder" and point.lat is not None:
@@ -784,8 +807,8 @@ def keyword_results(db: Session, job: AuditJob, keyword_id) -> dict | None:
             "error": run.error,
             "shown": run.pack_shown if run.result_type == "local_pack" else None,
             "results": [_business_row(r) for r in rows],
-            "google_url": _encode_uule(run.google_url) if run.google_url else _run_google_url(run),
-            "google_url_exact": bool(run.google_url),  # False = rebuilt from the saved search settings
+            # proof: the same search as a plain Google link (location built in), and SerpApi's saved page
+            "proof_url": _run_google_url(run),
             "snapshot_url": run.snapshot_url,
         }
     return out
@@ -796,7 +819,7 @@ def _run_google_url(run: RankingRun) -> str | None:
     if not run.keyword:
         return None
     label = run.search_location or ""
-    named = label.split(" (whole country)")[0] if "(whole country)" in label else None
+    named = next((label[: -len(s)] for s in NAMED_SUFFIX.values() if label.endswith(s)), None)
     point = SearchPoint(run.search_scope or "city", label, run.latitude, run.longitude, named)
     kw = Keyword(
         keyword=run.keyword, country=run.country, language=run.language, location_name=run.location_name
@@ -813,8 +836,7 @@ def all_results(db: Session, job: AuditJob) -> list[dict]:
         .order_by(RankingRun.keyword, RankingRun.result_type.desc(), RankingResult.rank)
     ).all()
     return [{"keyword": run.keyword, "result_type": run.result_type, "search_from": run.search_location,
-             "google_url": _encode_uule(run.google_url) if run.google_url else _run_google_url(run),
-             **_business_row(res)}
+             "proof_url": _run_google_url(run), **_business_row(res)}
             for res, run in rows]  # fmt: skip
 
 

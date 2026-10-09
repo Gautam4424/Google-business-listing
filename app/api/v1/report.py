@@ -23,7 +23,7 @@ class FullAuditOptions(BaseModel):
     rankings: bool = Field(True, description="Include a ranking check (SerpApi: 2 per active keyword)")
     mode: Literal["full", "maps_only"] | None = None
     top10_reviews: bool | None = Field(None, description="Top 10 reviews via SerpApi (2 credits)")
-    search_from: Literal["city", "country", "business"] | None = Field(
+    search_from: Literal["city", "area", "country", "business"] | None = Field(
         None, description="Where the ranking check searches from (default: the project's last choice)"
     )
 
