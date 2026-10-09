@@ -13,6 +13,7 @@ Re-checks within RANKING_CACHE_HOURS reuse the saved response for free.
 """
 
 import base64
+import logging
 import re
 import uuid
 from collections import defaultdict
@@ -35,6 +36,14 @@ from app.services import quota
 from app.services.keywords import city_label
 from app.services.nap import clean_name, normalize_phone, postcode
 from app.services.provider_cache import get_cached, store_response
+
+log = logging.getLogger(__name__)
+# what a search was (kept when its answer cannot be read, so the failure is recorded with its context)
+RUN_FIELDS = (
+    "project_id", "keyword_id", "audit_job_id", "checked_at", "provider", "result_type", "country",
+    "language", "device", "location_name", "latitude", "longitude", "keyword", "search_location",
+    "search_scope", "search_radius_meters", "from_cache", "raw_response_id", "google_url", "snapshot_url",
+)  # fmt: skip
 
 PACK_POINTS = {1: 100, 2: 70, 3: 50}
 MAX_POINTS = 140  # best case: Local Pack #1 (100) + Local Finder top 3 (40)
@@ -122,21 +131,30 @@ def _num(value) -> str | None:
     return value if value.isdigit() else None
 
 
+def _texts(value) -> list[str]:
+    """A category comes as text or as a list (e.g. one exact-match place): always return a list of text."""
+    if value is None:
+        return []
+    items = value if isinstance(value, list | tuple) else [value]
+    return [
+        str(x).strip() for x in items if x is not None and not isinstance(x, dict | list) and str(x).strip()
+    ]
+
+
 def _row(rank: int, p: dict) -> dict:
     gps = p.get("gps_coordinates") or {}
     links = p.get("links") or {}
     raw_pid = p.get("place_id")
     cid = _num(p.get("data_cid")) or _num(raw_pid)
     place_id = raw_pid if raw_pid and not _num(raw_pid) else None
-    types = p.get("types") or []
-    categories = list(dict.fromkeys(([p["type"]] if p.get("type") else []) + types)) or None
+    categories = list(dict.fromkeys(_texts(p.get("type")) + _texts(p.get("types")))) or None
     return {
         "rank": rank,
         "place_id": place_id,
         "cid": cid,
-        "business_name": p.get("title") or "",
-        "address": p.get("address"),
-        "primary_category": p.get("type") or (types[0] if types else None),
+        "business_name": str(p.get("title") or ""),
+        "address": p.get("address") if isinstance(p.get("address"), str) else None,
+        "primary_category": categories[0] if categories else None,
         "categories": categories,
         "rating": p.get("rating"),
         "review_count": p.get("reviews"),
@@ -581,18 +599,30 @@ def run_check(
             run.from_cache, run.raw_response_id = from_cache, raw_id
             run.google_url, run.snapshot_url = serpapi_links(data)
             run.google_url = run.google_url or rebuilt_google_url(kind, kw, point)
-            if kind == "local_pack":
-                run.pack_shown, rows = parse_local_pack(data)
-            else:
-                rows = parse_maps(data)
-            db.add(run)
-            db.flush()
-            for r in rows:
-                client_hit = is_client(r, ident, kw.country)
-                db.add(RankingResult(run_id=run.id, is_client_business=client_hit, **r))
-                if client_hit and run.client_rank is None:
-                    run.client_rank = r["rank"]
-            db.commit()
+            try:
+                if kind == "local_pack":
+                    run.pack_shown, rows = parse_local_pack(data)
+                else:
+                    rows = parse_maps(data)
+                db.add(run)
+                db.flush()
+                for r in rows:
+                    client_hit = is_client(r, ident, kw.country)
+                    db.add(RankingResult(run_id=run.id, is_client_business=client_hit, **r))
+                    if client_hit and run.client_rank is None:
+                        run.client_rank = r["rank"]
+                db.commit()
+            except Exception as exc:  # one unreadable answer fails only this search, never the whole check
+                db.rollback()
+                log.exception("Could not read the %s answer for %r", kind, kw.keyword)
+                failed = RankingRun(**{c: getattr(run, c) for c in RUN_FIELDS})
+                failed.status, failed.error = (
+                    "failed",
+                    f"Could not read Google's answer: {type(exc).__name__}",
+                )
+                db.add(failed)
+                db.commit()
+                errors.append(f"{kw.keyword} ({kind}): unreadable answer")
         else:
             done_keywords += 1
     return {

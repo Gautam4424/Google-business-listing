@@ -330,6 +330,39 @@ def test_full_results_per_keyword(client, db, setup):
     )  # 2 kw x (3+3)
 
 
+def test_single_exact_place_with_category_list_does_not_break_the_check(db, setup, monkeypatch):
+    """A brand-name search: Google Maps answers with one place whose 'type' is a list (real 9 Oct crash)."""
+    project, _, _ = setup
+    place = {"title": "Proximity Plumbing", "place_id": CLIENT_PID, "data_cid": CLIENT_CID,
+             "type": ["Plumber", "Drainage service"], "rating": 4.9, "reviews": 2828}  # fmt: skip
+    one_place = {"place_results": place}
+    broken = {
+        "local_results": [{"position": 1, "title": "X", "type": {"weird": 1}, "address": ["not", "text"]}]
+    }
+
+    def serp(request):
+        p = request.url.params
+        if request.url.path == "/account.json":
+            return httpx.Response(200, json={"total_searches_left": 99})
+        if p["engine"] == "google":
+            return httpx.Response(200, json=PACK)
+        return httpx.Response(200, json=one_place if "Point Piper" in p["q"] else broken)
+
+    monkeypatch.setattr(rankings, "get_serpapi_client",
+                        lambda: SerpApiClient("k", transport=httpx.MockTransport(serp)))  # fmt: skip
+    rows = rankings.parse_maps(one_place)
+    assert (
+        rows[0]["categories"] == ["Plumber", "Drainage service"] and rows[0]["primary_category"] == "Plumber"
+    )
+    assert rankings.parse_maps(broken)[0]["categories"] is None  # odd shapes are ignored, not fatal
+    job = run_job(db, _job(db, project, mode="full").id)
+    assert job.status in ("completed", "partial_success"), job.steps
+    report = rankings.check_report(db, project, job, None)
+    assert {r["keyword"] for r in report["keywords"]} == {"plumber in Point Piper", "blocked drains near me"}
+    exact = next(r for r in report["keywords"] if r["keyword"] == "plumber in Point Piper")
+    assert exact["local_finder_rank"] == 1  # the single matched place is the client, rank 1
+
+
 def test_points_and_parsing():
     assert [rankings.finder_points(r) for r in (1, 3, 4, 10, 11, 20, 21, None)] == [
         40,
